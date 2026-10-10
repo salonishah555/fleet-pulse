@@ -1,6 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { MatButtonModule } from '@angular/material/button';
+import { MatTableModule } from '@angular/material/table';
 import { FleetStore } from '../../core/state/fleet-store.service';
 import { MetricChartComponent } from '../../shared/components/metric-chart.component';
 import { StateComponent } from '../../shared/components/state.component';
@@ -9,7 +11,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
 
 @Component({
   selector: 'app-dashboard',
-  imports: [CommonModule, RouterLink, StatCardComponent, StatusBadgeComponent, MetricChartComponent, StateComponent],
+  imports: [CommonModule, RouterLink, MatButtonModule, MatTableModule, StatCardComponent, StatusBadgeComponent, MetricChartComponent, StateComponent],
   template: `
     @if (store.loading()) {
       <app-state title="Loading fleet telemetry" message="Fetching the latest metrics snapshot." />
@@ -31,35 +33,40 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
               <span class="eyebrow">Highest priority</span>
               <h2>Services needing attention</h2>
             </div>
-            <a class="text-link" routerLink="/services">View all</a>
+            <a matButton class="text-link" routerLink="/services">View all</a>
           </div>
           <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>Team</th>
-                  <th>Status</th>
-                  <th>P95</th>
-                  <th>Errors</th>
-                  <th>RPS</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (service of priorityServices(); track service.id) {
-                  <tr [class.alert-row]="service.status !== 'healthy'" [routerLink]="['/services', service.id]">
-                    <td><strong>{{ service.name }}</strong><small>{{ service.region }}</small></td>
-                    <td>{{ service.team }}</td>
-                    <td><app-status-badge [status]="service.status" [label]="service.status" /></td>
-                    <td>{{ service.latency }}ms</td>
-                    <td>{{ service.errorRate | number: '1.2-2' }}%</td>
-                    <td>{{ service.rps | number: '1.0-0' }}</td>
-                  </tr>
-                } @empty {
-                  <tr><td colspan="6"><app-state title="No services loaded" /></td></tr>
-                }
-              </tbody>
+            <table mat-table [dataSource]="priorityServices()" class="fleet-table">
+              <ng-container matColumnDef="service">
+                <th mat-header-cell *matHeaderCellDef>Service</th>
+                <td mat-cell *matCellDef="let service"><strong>{{ service.name }}</strong><small>{{ service.region }}</small></td>
+              </ng-container>
+              <ng-container matColumnDef="team">
+                <th mat-header-cell *matHeaderCellDef>Team</th>
+                <td mat-cell *matCellDef="let service">{{ service.team }}</td>
+              </ng-container>
+              <ng-container matColumnDef="status">
+                <th mat-header-cell *matHeaderCellDef>Status</th>
+                <td mat-cell *matCellDef="let service"><app-status-badge [status]="service.status" [label]="service.status" /></td>
+              </ng-container>
+              <ng-container matColumnDef="latency">
+                <th mat-header-cell *matHeaderCellDef>P95</th>
+                <td mat-cell *matCellDef="let service">{{ service.latency }}ms</td>
+              </ng-container>
+              <ng-container matColumnDef="errors">
+                <th mat-header-cell *matHeaderCellDef>Errors</th>
+                <td mat-cell *matCellDef="let service">{{ service.errorRate | number: '1.2-2' }}%</td>
+              </ng-container>
+              <ng-container matColumnDef="rps">
+                <th mat-header-cell *matHeaderCellDef>RPS</th>
+                <td mat-cell *matCellDef="let service">{{ service.rps | number: '1.0-0' }}</td>
+              </ng-container>
+              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+              <tr mat-row *matRowDef="let service; columns: displayedColumns" [class.alert-row]="service.status !== 'healthy'" [routerLink]="['/services', service.id]"></tr>
             </table>
+            @if (priorityServices().length === 0) {
+              <app-state title="No services loaded" />
+            }
           </div>
         </article>
 
@@ -82,7 +89,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
                 <span class="eyebrow">Recent incidents</span>
                 <h2>Live impact</h2>
               </div>
-              <a class="text-link" routerLink="/incidents">Open</a>
+              <a matButton class="text-link" routerLink="/incidents">Open</a>
             </div>
             @for (incident of store.incidents().slice(0, 5); track incident.id) {
               <div class="incident">
@@ -102,6 +109,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
 })
 export class DashboardComponent {
   readonly store = inject(FleetStore);
+  readonly displayedColumns = ['service', 'team', 'status', 'latency', 'errors', 'rps'];
   readonly summary = this.store.summary;
   readonly priorityServices = computed(() => this.store.sortedServices().filter((service) => service.status !== 'healthy').slice(0, 10));
   readonly featuredService = computed(() => this.priorityServices()[0] ?? this.store.services()[0]);

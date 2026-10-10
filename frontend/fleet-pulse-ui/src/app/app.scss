@@ -100,7 +100,11 @@ td small,
 }
 
 .nav-item {
-  padding: 11px 12px;
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
   border-radius: 8px;
   color: #bfd0e9;
   text-decoration: none;
@@ -109,7 +113,7 @@ td small,
 
 .nav-item.active,
 .nav-item:hover,
-button:hover {
+button:not(.mat-mdc-button-base):hover {
   border-color: rgba(56, 189, 248, 0.28);
   background: rgba(56, 189, 248, 0.1);
 }
@@ -339,28 +343,6 @@ table {
   min-width: 860px;
 }
 
-th,
-td {
-  padding: 12px 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-}
-
-th {
-  position: sticky;
-  top: 0;
-  background: #0e1a2d;
-  z-index: 1;
-}
-
-th button {
-  color: #b8c7df;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 5px 6px;
-}
-
 td strong,
 td small {
   display: block;
@@ -373,14 +355,6 @@ tr {
 tbody tr:hover,
 tr.selected {
   background: rgba(56, 189, 248, 0.08);
-}
-
-tbody tr[routerLink] {
-  cursor: pointer;
-}
-
-tr.alert-row {
-  box-shadow: inset 3px 0 0 rgba(245, 158, 11, 0.75);
 }
 
 .status-pill {

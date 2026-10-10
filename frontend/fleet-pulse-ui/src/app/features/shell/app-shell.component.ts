@@ -1,12 +1,13 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { MatButtonModule } from '@angular/material/button';
 import { AuthService } from '../../core/auth/auth.service';
 import { FleetStore } from '../../core/state/fleet-store.service';
 
 @Component({
   selector: 'app-shell',
-  imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule],
   template: `
     <main class="ops-shell">
       <aside class="sidebar" aria-label="Primary navigation">
@@ -19,12 +20,12 @@ import { FleetStore } from '../../core/state/fleet-store.service';
         </a>
 
         <nav class="nav-list">
-          <a class="nav-item" routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
-          <a class="nav-item" routerLink="/services" routerLinkActive="active">Services</a>
-          <a class="nav-item" routerLink="/alert-rules" routerLinkActive="active">Alert rules</a>
-          <a class="nav-item" routerLink="/incidents" routerLinkActive="active">Incidents</a>
+          <a mat-button class="nav-item" routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
+          <a mat-button class="nav-item" routerLink="/services" routerLinkActive="active">Services</a>
+          <a mat-button class="nav-item" routerLink="/alert-rules" routerLinkActive="active">Alert rules</a>
+          <a mat-button class="nav-item" routerLink="/incidents" routerLinkActive="active">Incidents</a>
           @if (auth.isOperator()) {
-            <a class="nav-item" routerLink="/chaos" routerLinkActive="active">Chaos</a>
+            <a mat-button class="nav-item" routerLink="/chaos" routerLinkActive="active">Chaos</a>
           }
         </nav>
 
@@ -65,6 +66,7 @@ import { FleetStore } from '../../core/state/fleet-store.service';
               <div class="profile-menu-wrap">
                 <button
                   type="button"
+                  matButton="outlined"
                   class="icon-button"
                   aria-label="Open profile menu"
                   aria-haspopup="menu"
@@ -79,12 +81,12 @@ import { FleetStore } from '../../core/state/fleet-store.service';
                       <strong>{{ displayName() }}</strong>
                       <span>{{ user.role }}</span>
                     </div>
-                    <button type="button" role="menuitem" class="profile-menu-item danger" (click)="logout()">Logout</button>
+                    <button type="button" matButton="outlined" role="menuitem" class="profile-menu-item danger" (click)="logout()">Logout</button>
                   </div>
                 }
               </div>
             } @else {
-              <a class="nav-item login-action" routerLink="/login">Login</a>
+              <a mat-button class="nav-item login-action" routerLink="/login">Login</a>
             }
           </div>
         </header>

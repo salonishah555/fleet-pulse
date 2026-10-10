@@ -1,10 +1,11 @@
 # Fleet Pulse Implementation Status
 
-No assignment PDF is present in the repository. Status below is based on the pasted requirements and commands run on 2026-10-10.
+No assignment PDF is present in the repository or its parent project folder. Status below reflects the stated requirements and commands run on 2026-10-10; exact PDF-specific criteria cannot be verified until that document is available.
 
 | Requirement | Status | Evidence / Notes |
 | --- | --- | --- |
-| Preserve existing dark Operations Dashboard | Complete and verified | Shell, panels, KPI cards, tables, incidents and rule styling remain in `frontend/fleet-pulse-ui/src/app/app.scss`; production build passes. |
+| Preserve existing dark Operations Dashboard | Complete and verified | Shell, panels, KPI cards, tables, incidents and rule styling remain handwritten in `frontend/fleet-pulse-ui/src/app/app.scss`; Angular Material controls use a custom dark palette and are verified by the production build. |
+| Angular Material frontend stack | Complete and verified | `@angular/material` 21.2.0 is installed for Angular 21. Standalone Material buttons, tables, form fields, inputs, selects, checkboxes and a delete-confirmation dialog are used in the shell and feature screens. `src/styles.scss` defines a custom dark M3 palette and Material theme; responsive layout remains hand-written SCSS. |
 | Backend Express + TypeScript | Complete and verified | `backend/src/server.ts`; `npm.cmd run build` passes. |
 | Generate 2,000 services | Complete and verified | API smoke test returned `summary.total = 2000`; backend tests assert the same. |
 | Login, CORS and Bearer-token access | Complete and verified | Backend tests cover CORS/login/protected snapshot; live smoke test logged in and fetched protected metrics/services. |
@@ -33,8 +34,8 @@ No assignment PDF is present in the repository. Status below is based on the pas
 | `/chaos` route | Complete and verified by build/dev server | Lazy chaos component builds and is operator guarded; `http://localhost:4200/chaos` returned Angular app shell. |
 | Not-found route | Complete and verified by build/dev server | Wildcard lazy component builds; unknown dev-server URL returned Angular app shell for client routing. |
 | Shared components | Complete and verified by build | Reuses sidebar/topbar shell, stat card, status badge, pagination, metric chart, state component and confirmation UI. |
-| Frontend tests | PASS | `npm.cmd test -- --watch=false`: 6 files passed, 22 tests passed. |
-| Frontend production build | PASS | `npm.cmd run build` passed with no warnings and emitted lazy feature chunks. |
+| Frontend tests | PASS | `npm.cmd test -- --watch=false`: 8 files passed, 24 tests passed, including Material service-table/filter wiring and delete-dialog decisions. |
+| Frontend production build | PASS | `npm.cmd run build` passed and emitted lazy feature chunks; the component stylesheet stayed within its configured size budget. |
 | Backend tests | Partial but passing | `npm.cmd test`: 1 file passed, 8 tests passed. Streaming edge cases are not automated. |
 | Backend build | Complete and verified | `npm.cmd run build` passed. |
 | Docker Compose | Implemented but not rerun today | `docker-compose.yml` is present and maps frontend `8080:4200`, backend `3000:3000`; `docker compose up --build` was not run in this pass. |
@@ -58,3 +59,4 @@ No assignment PDF is present in the repository. Status below is based on the pas
 - Complete browser/manual verification for the new profile menu and logout flow.
 - Run Docker Compose validation.
 - Add browser automation for login, navigation, service details and alert-rule operations if a browser driver is available.
+- Cross-check the remaining assignment requirements against the actual assignment PDF when it is supplied; it was not present in the project or its parent folder during this review.

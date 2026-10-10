@@ -130,6 +130,6 @@ The Angular HTTP client applies a 10 second timeout to API calls. GET requests a
 - Backend state is deterministic in memory and generates 2,000 services.
 - Metric events use a monotonic global offset and per-service sequence numbers.
 - Replay and per-service history are bounded in memory.
-- Frontend preserves the original dark operations dashboard and now consumes typed backend APIs plus WebSocket/SSE realtime updates.
+- Frontend preserves the dark operations dashboard, uses Angular Material 21 with a custom dark theme and handwritten responsive SCSS, and consumes typed backend APIs plus WebSocket/SSE realtime updates.
 
 Known limitations are tracked in `IMPLEMENTATION_STATUS.md`.

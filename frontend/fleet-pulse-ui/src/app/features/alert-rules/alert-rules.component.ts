@@ -1,13 +1,19 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { AuthService } from '../../core/auth/auth.service';
 import { FleetStore } from '../../core/state/fleet-store.service';
 import { StateComponent } from '../../shared/components/state.component';
+import { ConfirmDeleteDialogComponent } from '../../shared/components/confirm-delete-dialog.component';
 
 @Component({
   selector: 'app-alert-rules',
-  imports: [CommonModule, ReactiveFormsModule, StateComponent],
+  imports: [CommonModule, ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, StateComponent],
   template: `
     <article class="panel rules-panel">
       <div class="panel-heading">
@@ -23,34 +29,26 @@ import { StateComponent } from '../../shared/components/state.component';
       }
 
       <form class="rule-form" [formGroup]="form" (ngSubmit)="createRule()">
-        <label><span>Name</span><input formControlName="name" /></label>
-        <label>
-          <span>Metric</span>
-          <select formControlName="metric">
-            <option value="p95 latency">P95 latency</option>
-            <option value="error rate">Error rate</option>
-            <option value="throughput">Throughput</option>
-          </select>
-        </label>
-        <label>
-          <span>When</span>
-          <select formControlName="comparator">
-            <option value=">">&gt;</option>
-            <option value="<">&lt;</option>
-          </select>
-        </label>
-        <label><span>Threshold</span><input type="number" formControlName="threshold" /></label>
-        <label><span>Scope</span><input formControlName="scope" /></label>
-        <button type="submit" [disabled]="form.invalid || !auth.isOperator()">Create rule</button>
+        <mat-form-field appearance="outline"><mat-label>Name</mat-label><input matInput formControlName="name" /></mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Metric</mat-label>
+          <mat-select formControlName="metric">
+            <mat-option value="p95 latency">P95 latency</mat-option>
+            <mat-option value="error rate">Error rate</mat-option>
+            <mat-option value="throughput">Throughput</mat-option>
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>When</mat-label>
+          <mat-select formControlName="comparator">
+            <mat-option value=">">&gt;</mat-option>
+            <mat-option value="<">&lt;</mat-option>
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline"><mat-label>Threshold</mat-label><input matInput type="number" formControlName="threshold" /></mat-form-field>
+        <mat-form-field appearance="outline"><mat-label>Scope</mat-label><input matInput formControlName="scope" /></mat-form-field>
+        <button matButton="filled" type="submit" [disabled]="form.invalid || !auth.isOperator()">Create rule</button>
       </form>
-
-      @if (confirmDelete()) {
-        <section class="confirm-dialog" role="alertdialog" aria-label="Confirm delete">
-          <span>Delete this rule?</span>
-          <button type="button" class="danger" (click)="deleteConfirmed()">Delete</button>
-          <button type="button" (click)="confirmDelete.set(null)">Cancel</button>
-        </section>
-      }
 
       <section class="rules-list">
         @for (rule of store.rules(); track rule.id) {
@@ -60,8 +58,8 @@ import { StateComponent } from '../../shared/components/state.component';
               <span>{{ rule.metric }} {{ rule.comparator }} {{ rule.threshold }} for {{ rule.scope }}</span>
             </div>
             <div class="rule-actions">
-              <button type="button" [disabled]="!auth.isOperator()" (click)="store.toggleRule(rule)">{{ rule.enabled ? 'Disable' : 'Enable' }}</button>
-              <button type="button" class="danger" [disabled]="!auth.isOperator()" (click)="confirmDelete.set(rule.id)">Delete</button>
+              <button matButton="outlined" type="button" [disabled]="!auth.isOperator()" (click)="store.toggleRule(rule)">{{ rule.enabled ? 'Disable' : 'Enable' }}</button>
+              <button matButton="outlined" type="button" class="danger" [disabled]="!auth.isOperator()" (click)="confirmDelete(rule.id, rule.name)">Delete</button>
             </div>
           </article>
         } @empty {
@@ -74,9 +72,9 @@ import { StateComponent } from '../../shared/components/state.component';
 })
 export class AlertRulesComponent {
   private readonly fb = inject(FormBuilder);
+  private readonly dialog = inject(MatDialog);
   readonly auth = inject(AuthService);
   readonly store = inject(FleetStore);
-  readonly confirmDelete = signal<string | null>(null);
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required],
     metric: ['p95 latency' as const, Validators.required],
@@ -91,10 +89,16 @@ export class AlertRulesComponent {
     this.form.patchValue({ name: '' });
   }
 
-  deleteConfirmed(): void {
-    const ruleId = this.confirmDelete();
-    if (!ruleId || !this.auth.isOperator()) return;
-    this.store.deleteRule(ruleId);
-    this.confirmDelete.set(null);
+  confirmDelete(ruleId: string, ruleName: string): void {
+    if (!this.auth.isOperator()) return;
+    this.dialog
+      .open(ConfirmDeleteDialogComponent, {
+        data: { ruleName },
+        ariaLabel: 'Confirm alert rule deletion',
+      })
+      .afterClosed()
+      .subscribe((confirmed: boolean | undefined) => {
+        if (confirmed && this.auth.isOperator()) this.store.deleteRule(ruleId);
+      });
   }
 }

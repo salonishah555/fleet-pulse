@@ -1,3 +1,112 @@
+@use 'sass:map';
+@use '@angular/material' as mat;
+
+@include mat.core();
+
+$fleet-pulse-primary: map.merge(
+  mat.$azure-palette,
+  (
+    40: #0284c7,
+    80: #7dd3fc,
+  )
+);
+$fleet-pulse-tertiary: map.merge(
+  mat.$cyan-palette,
+  (
+    40: #0f766e,
+    80: #5eead4,
+  )
+);
+$fleet-pulse-theme: mat.define-theme(
+  (
+    color: (
+      theme-type: dark,
+      primary: $fleet-pulse-primary,
+      tertiary: $fleet-pulse-tertiary,
+    ),
+    typography: (
+      plain-family: ('Inter', 'ui-sans-serif', system-ui, sans-serif),
+      brand-family: ('Inter', 'ui-sans-serif', system-ui, sans-serif),
+    ),
+    density: (
+      scale: 0,
+    ),
+  )
+);
+
+:root {
+  @include mat.all-component-themes($fleet-pulse-theme);
+  color-scheme: dark;
+  --mat-sys-primary: #7dd3fc;
+  --mat-sys-on-primary: #002033;
+  --mat-sys-surface: #0e1a2d;
+  --mat-sys-on-surface: #eef4ff;
+  --mat-sys-outline: #35445a;
+}
+
+.mat-mdc-button {
+  border-radius: 8px !important;
+  font-weight: 800;
+}
+
+.mat-mdc-form-field {
+  width: 100%;
+}
+
+.mat-mdc-form-field input {
+  min-height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mat-mdc-form-field input:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.filters .mat-mdc-form-field,
+.rule-form .mat-mdc-form-field,
+.chaos-grid .mat-mdc-form-field {
+  min-width: 0;
+}
+
+.rule-form button {
+  width: 100%;
+}
+
+.fleet-table th,
+.fleet-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.fleet-table th {
+  position: sticky;
+  top: 0;
+  background: #0e1a2d;
+  z-index: 1;
+}
+
+.fleet-table th button {
+  min-height: 30px;
+  padding: 5px 6px;
+  color: #b8c7df;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+.fleet-table tr[routerLink] {
+  cursor: pointer;
+}
+
+.fleet-table tr.alert-row {
+  box-shadow: inset 3px 0 0 rgba(245, 158, 11, 0.75);
+}
+
 * {
   box-sizing: border-box;
 }

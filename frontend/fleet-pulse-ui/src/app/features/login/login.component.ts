@@ -3,11 +3,14 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { AuthService } from '../../core/auth/auth.service';
 
 @Component({
   selector: 'app-login',
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   template: `
     <main class="login-page">
       <section class="login-panel panel">
@@ -16,23 +19,23 @@ import { AuthService } from '../../core/auth/auth.service';
         <p class="muted">Sign in with the demo operator or viewer account.</p>
 
         <form [formGroup]="form" (ngSubmit)="login()">
-          <label>
-            <span>Email</span>
-            <input type="email" formControlName="email" autocomplete="username" />
-          </label>
-          <label>
-            <span>Password</span>
-            <input type="password" formControlName="password" autocomplete="current-password" />
-          </label>
+          <mat-form-field appearance="outline">
+            <mat-label>Email</mat-label>
+            <input matInput type="email" formControlName="email" autocomplete="username" />
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Password</mat-label>
+            <input matInput type="password" formControlName="password" autocomplete="current-password" />
+          </mat-form-field>
           @if (error()) {
             <p class="form-error">{{ error() }}</p>
           }
-          <button type="submit" [disabled]="form.invalid || loading()">{{ loading() ? 'Signing in...' : 'Sign in' }}</button>
+          <button matButton="filled" type="submit" [disabled]="form.invalid || loading()">{{ loading() ? 'Signing in...' : 'Sign in' }}</button>
         </form>
 
         <div class="demo-actions" aria-label="Demo login shortcuts">
-          <button type="button" (click)="useDemo('operator')">Operator demo</button>
-          <button type="button" (click)="useDemo('viewer')">Viewer demo</button>
+          <button matButton="outlined" type="button" (click)="useDemo('operator')">Operator demo</button>
+          <button matButton="outlined" type="button" (click)="useDemo('viewer')">Viewer demo</button>
         </div>
       </section>
     </main>
