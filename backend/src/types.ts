@@ -59,7 +59,7 @@ export interface AlertRule {
 
 export interface ChaosState {
   rate: number;
-  ws?: 'down' | 'silent';
+  ws?: 'down' | 'silent' | `drop:${number}`;
   sse?: 'down';
   chaos: string[];
   token_ttl: number;

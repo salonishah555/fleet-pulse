@@ -68,7 +68,7 @@ export function getSnapshot() {
     offset,
     generatedAt: Date.now(),
     summary: { total, healthy, degraded, down, avgP95, totalRps, avgErrRate },
-    services,
+    services: services.map((service) => ({ ...service, seq: serviceSeq.get(service.id) ?? 0 })),
   };
 }
 
@@ -77,7 +77,8 @@ export function getHistory(serviceId: string, minutes: number) {
     throw notFound('Service not found');
   }
   const cutoff = Date.now() - minutes * 60_000;
-  return { serviceId, minutes, items: (history.get(serviceId) ?? []).filter((point) => point.ts >= cutoff) };
+  const points = (history.get(serviceId) ?? []).filter((point) => point.ts >= cutoff);
+  return { serviceId, minutes, points, items: points };
 }
 
 export function getReplay(since: number) {
@@ -113,17 +114,29 @@ export function listRules(): AlertRule[] {
   return [...rules.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export function getRule(id: string): AlertRule {
+  const rule = rules.get(id);
+  if (!rule) {
+    throw notFound('Alert rule not found');
+  }
+  return rule;
+}
+
 export function validateRuleName(name: string, excludeId?: string) {
   const normalized = name.trim().toLowerCase();
   const available = normalized.length >= 3 && ![...rules.values()].some((rule) => rule.id !== excludeId && rule.name.toLowerCase() === normalized);
   return { name, available };
 }
 
-export function createRule(input: RuleInput): AlertRule {
+export function createRule(input: RuleInput, id?: string): AlertRule {
   ensureUniqueRuleName(input.name);
+  const ruleId = id?.trim() || `rule-${cryptoRandom()}`;
+  if (rules.has(ruleId)) {
+    throw new ApiError(409, 'duplicate_rule_id', 'Rule id is already in use');
+  }
   const now = Date.now();
   const rule: AlertRule = {
-    id: `rule-${cryptoRandom()}`,
+    id: ruleId,
     name: input.name.trim(),
     conditions: input.conditions,
     scope: input.scope.trim(),

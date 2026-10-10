@@ -4,10 +4,10 @@ services:
     working_dir: /app
     command: sh -c "npm ci && npm run dev"
     environment:
-      PORT: 3000
+      PORT: 4000
       CORS_ORIGIN: http://localhost:4200,http://localhost:8080
     ports:
-      - "3000:3000"
+      - "4000:4000"
     volumes:
       - ./backend:/app
 

@@ -1,14 +1,16 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { authenticate, login, refresh, requireRole } from './auth.js';
+import { authenticate, login, refresh, requireRole, type AuthenticatedRequest } from './auth.js';
 import { chaosService } from './chaos.js';
 import { ApiError, asyncRoute, errorMiddleware } from './errors.js';
 import { addSseClient, attachWebSocket, stopStreams } from './stream.js';
 import {
   createRule,
   deleteRule,
+  getRule,
   getHistory,
   getReplay,
   getSnapshot,
@@ -20,7 +22,7 @@ import {
 } from './data.js';
 import type { MetricName, RuleOperator, ServiceStatus } from './types.js';
 
-const port = Number(process.env['PORT'] ?? 3000);
+const port = Number(process.env['PORT'] ?? 4000);
 const allowedOrigins = (process.env['CORS_ORIGIN'] ?? 'http://localhost:4200,http://127.0.0.1:4200,http://localhost:4201,http://localhost:8080')
   .split(',')
   .map((origin) => origin.trim())
@@ -34,7 +36,7 @@ const corsOptions: cors.CorsOptions = {
     callback(new ApiError(403, 'cors_origin_denied', 'Origin is not allowed by CORS policy'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
   optionsSuccessStatus: 204,
 };
 
@@ -52,6 +54,13 @@ const ruleSchema = z.object({
   enabled: z.boolean().optional(),
   conditions: z.array(conditionSchema).min(1).max(5),
 });
+const idempotencyWindowMs = 24 * 60 * 60 * 1000;
+const idempotentRuleCreates = new Map<string, {
+  fingerprint: string;
+  status: number;
+  body: unknown;
+  expiresAt: number;
+}>();
 
 export function createApp() {
   const app = express();
@@ -119,8 +128,45 @@ export function createApp() {
     res.json({ items: listRules() });
   });
 
+  app.get('/rules', authenticate, (_req, res) => {
+    res.json({ items: listRules() });
+  });
+
+  app.get('/rules/check-name', authenticate, (req, res) => {
+    res.json(validateRuleName(requiredString(req.query['name'], 'name is required'), stringQuery(req.query['excludeId'])));
+  });
+
+  app.get('/rules/:id', authenticate, (req, res) => {
+    res.json(getRule(routeParam(req.params['id'], 'id is required')));
+  });
+
   app.get('/alert-rules/validate-name', authenticate, (req, res) => {
     res.json(validateRuleName(requiredString(req.query['name'], 'name is required'), stringQuery(req.query['excludeId'])));
+  });
+
+  app.post('/rules', authenticate, requireRole('operator'), asyncRoute((req, res) => {
+    const body = ruleSchema.parse(req.body) satisfies RuleInput;
+    respondToIdempotentRuleCreate(req as AuthenticatedRequest, res, body);
+  }));
+
+  app.post('/rules/:id', authenticate, requireRole('operator'), asyncRoute((req, res) => {
+    const body = ruleSchema.parse(req.body) satisfies RuleInput;
+    respondToIdempotentRuleCreate(req as AuthenticatedRequest, res, body, routeParam(req.params['id'], 'id is required'));
+  }));
+
+  app.put('/rules/:id', authenticate, requireRole('operator'), asyncRoute((req, res) => {
+    const body = ruleSchema.parse(req.body) satisfies RuleInput;
+    res.json(updateRule(routeParam(req.params['id'], 'id is required'), body));
+  }));
+
+  app.patch('/rules/:id', authenticate, requireRole('operator'), asyncRoute((req, res) => {
+    const body = ruleSchema.partial().parse(req.body);
+    res.json(updateRule(routeParam(req.params['id'], 'id is required'), body));
+  }));
+
+  app.delete('/rules/:id', authenticate, requireRole('operator'), (req, res) => {
+    deleteRule(routeParam(req.params['id'], 'id is required'));
+    res.status(204).end();
   });
 
   app.post('/alert-rules', authenticate, requireRole('operator'), asyncRoute((req, res) => {
@@ -191,13 +237,10 @@ function chaosHttpMiddleware(req: Request, res: Response, next: NextFunction): v
     return;
   }
   const httpMode = chaosService.get().http;
-  if (httpMode === '500') {
-    next(new ApiError(500, 'chaos_http_500', 'Chaos HTTP 500 mode is active'));
-    return;
-  }
-  if (httpMode === '429') {
-    res.setHeader('Retry-After', '1');
-    next(new ApiError(429, 'chaos_http_429', 'Chaos HTTP 429 mode is active'));
+  const failureStatus = httpMode === 'down' ? 503 : Number(httpMode);
+  if (Number.isInteger(failureStatus) && failureStatus >= 400 && failureStatus <= 599) {
+    if (failureStatus === 429) res.setHeader('Retry-After', '1');
+    next(new ApiError(failureStatus, `chaos_http_${failureStatus}`, `Chaos HTTP ${failureStatus} mode is active`));
     return;
   }
   if (httpMode?.startsWith('slow')) {
@@ -206,6 +249,50 @@ function chaosHttpMiddleware(req: Request, res: Response, next: NextFunction): v
     return;
   }
   next();
+}
+
+function respondToIdempotentRuleCreate(req: AuthenticatedRequest, res: Response, body: RuleInput, id?: string): void {
+  const idempotencyKey = req.header('Idempotency-Key')?.trim();
+  if (!idempotencyKey) {
+    res.status(201).json(createRule(body, id));
+    return;
+  }
+  if (idempotencyKey.length > 200) {
+    throw new ApiError(400, 'invalid_idempotency_key', 'Idempotency-Key must not exceed 200 characters');
+  }
+
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new ApiError(401, 'missing_token', 'Authentication token is required');
+  }
+  const cacheKey = `${userId}:${idempotencyKey}`;
+  const fingerprint = crypto.createHash('sha256').update(JSON.stringify({ body, id })).digest('hex');
+  const now = Date.now();
+  for (const [key, entry] of idempotentRuleCreates) {
+    if (entry.expiresAt <= now) idempotentRuleCreates.delete(key);
+  }
+  const cached = idempotentRuleCreates.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.fingerprint !== fingerprint) {
+      throw new ApiError(409, 'idempotency_key_reused', 'Idempotency-Key was already used with a different request');
+    }
+    res.status(cached.status).json(cached.body);
+    return;
+  }
+  if (cached) idempotentRuleCreates.delete(cacheKey);
+  if (idempotentRuleCreates.size >= 10_000) {
+    const oldestKey = idempotentRuleCreates.keys().next().value;
+    if (oldestKey) idempotentRuleCreates.delete(oldestKey);
+  }
+
+  const result = createRule(body, id);
+  idempotentRuleCreates.set(cacheKey, {
+    fingerprint,
+    status: 201,
+    body: result,
+    expiresAt: now + idempotencyWindowMs,
+  });
+  res.status(201).json(result);
 }
 
 function routeParam(value: string | string[] | undefined, message: string): string {

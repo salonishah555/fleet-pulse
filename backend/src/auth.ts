@@ -8,8 +8,24 @@ const secret = process.env['AUTH_SECRET'] ?? 'fleet-pulse-dev-secret';
 const refreshTokens = new Map<string, { userId: string; expiresAt: number }>();
 
 const users = [
-  { id: 'usr-operator', email: 'operator@fleetpulse.dev', password: 'operator123', role: 'operator' as const },
-  { id: 'usr-viewer', email: 'viewer@fleetpulse.dev', password: 'viewer123', role: 'viewer' as const },
+  {
+    id: 'usr-operator',
+    email: 'operator@pulse.dev',
+    credentials: [
+      { email: 'operator@pulse.dev', password: 'pulse123' },
+      { email: 'operator@fleetpulse.dev', password: 'operator123' },
+    ],
+    role: 'operator' as const,
+  },
+  {
+    id: 'usr-viewer',
+    email: 'viewer@pulse.dev',
+    credentials: [
+      { email: 'viewer@pulse.dev', password: 'pulse123' },
+      { email: 'viewer@fleetpulse.dev', password: 'viewer123' },
+    ],
+    role: 'viewer' as const,
+  },
 ];
 
 export interface AuthResponse {
@@ -31,7 +47,7 @@ interface TokenPayload {
 }
 
 export function login(email: string, password: string): AuthResponse {
-  const record = users.find((user) => user.email === email && user.password === password);
+  const record = users.find((user) => user.credentials.some((credential) => credential.email === email && credential.password === password));
   if (!record) {
     throw new ApiError(401, 'invalid_credentials', 'Email or password is incorrect');
   }

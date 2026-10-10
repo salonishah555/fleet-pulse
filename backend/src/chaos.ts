@@ -22,6 +22,10 @@ export class ChaosService extends EventEmitter {
       if (Number.isFinite(rate)) next.rate = Math.min(5000, Math.max(1, Math.trunc(rate)));
     }
     if (input['ws'] === 'down' || input['ws'] === 'silent') next.ws = input['ws'];
+    if (typeof input['ws'] === 'string' && input['ws'].startsWith('drop:')) {
+      const percentage = Number(input['ws'].slice(5));
+      if (Number.isFinite(percentage)) next.ws = `drop:${Math.min(100, Math.max(0, percentage))}`;
+    }
     if (input['ws'] === null || input['ws'] === '') delete next.ws;
     if (input['sse'] === 'down') next.sse = 'down';
     if (input['sse'] === null || input['sse'] === '') delete next.sse;
@@ -34,7 +38,7 @@ export class ChaosService extends EventEmitter {
       const ttl = Number(input['token_ttl']);
       if (Number.isFinite(ttl)) next.token_ttl = Math.max(1, Math.trunc(ttl));
     }
-    if (typeof input['http'] === 'string') next.http = input['http'];
+    if (typeof input['http'] === 'string' || typeof input['http'] === 'number') next.http = String(input['http']);
     if (input['http'] === null || input['http'] === '') delete next.http;
     if (input['kill'] !== undefined) {
       const kill = Number(input['kill']);
@@ -71,7 +75,11 @@ export class ChaosService extends EventEmitter {
   }
 
   hasFlag(local: Partial<ChaosState>, flag: string): boolean {
-    return (local.chaos ?? []).some((value) => value === flag);
+    const aliases: Record<string, string[]> = {
+      dupe: ['dupe', 'duplicate'],
+      duplicate: ['dupe', 'duplicate'],
+    };
+    return (local.chaos ?? []).some((value) => (aliases[flag] ?? [flag]).includes(value));
   }
 
   private percentSwitch(local: Partial<ChaosState>, prefix: string): boolean {

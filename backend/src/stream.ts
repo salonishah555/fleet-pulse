@@ -11,6 +11,8 @@ const sockets = new Set<WebSocket>();
 const sseClients = new Set<Response>();
 let pump: NodeJS.Timeout | undefined;
 let heartbeat: NodeJS.Timeout | undefined;
+let shuffleFlush: NodeJS.Timeout | undefined;
+const shuffleQueue: { event: MetricEvent | PingEvent | string; local: ChaosState }[] = [];
 
 export function attachWebSocket(server: Server): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -20,10 +22,12 @@ export function attachWebSocket(server: Server): WebSocketServer {
     if (url.pathname !== '/stream') {
       return;
     }
+    if (chaosService.get().ws === 'down') {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     try {
-      if (chaosService.get().ws === 'down') {
-        throw new ApiError(503, 'stream_unavailable', 'WebSocket stream is unavailable');
-      }
       verifyAccessToken(url.searchParams.get('token') ?? '');
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
@@ -38,8 +42,10 @@ export function attachWebSocket(server: Server): WebSocketServer {
     sockets.add(socket);
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const since = Number(url.searchParams.get('since') ?? '0');
-    for (const event of getReplay(Number.isFinite(since) ? since : 0).items) {
-      socket.send(JSON.stringify(event));
+    if (chaosService.get().ws !== 'silent') {
+      for (const event of getReplay(Number.isFinite(since) ? since : 0).items) {
+        socket.send(JSON.stringify(event));
+      }
     }
     socket.on('close', () => sockets.delete(socket));
   });
@@ -67,6 +73,9 @@ export function addSseClient(res: Response, since: number): void {
 export function stopStreams(): void {
   if (pump) clearInterval(pump);
   if (heartbeat) clearInterval(heartbeat);
+  if (shuffleFlush) clearTimeout(shuffleFlush);
+  shuffleQueue.length = 0;
+  shuffleFlush = undefined;
   for (const socket of sockets) socket.close();
   for (const client of sseClients) client.end();
 }
@@ -93,15 +102,16 @@ function applyChaos(event: MetricEvent, local: ChaosState): MetricEvent | string
   if (chaosService.hasFlag(local, 'duplicate')) {
     queueMicrotask(() => publish(event, local));
   }
-  if (chaosService.hasFlag(local, 'shuffle')) {
-    setTimeout(() => publish(event, local), 150);
-    return undefined;
-  }
   return event;
 }
 
-function publish(event: MetricEvent | PingEvent | string | undefined, local: ChaosState): void {
+function publish(event: MetricEvent | PingEvent | string | undefined, local: ChaosState, shuffled = false): void {
   if (event === undefined) return;
+  if (!shuffled && chaosService.hasFlag(local, 'shuffle')) {
+    shuffleQueue.push({ event, local });
+    if (!shuffleFlush) shuffleFlush = setTimeout(flushShuffleQueue, 150);
+    return;
+  }
   const payload = typeof event === 'string' ? event : JSON.stringify(event);
   if (local.ws !== 'silent') {
     for (const socket of sockets) {
@@ -110,6 +120,17 @@ function publish(event: MetricEvent | PingEvent | string | undefined, local: Cha
   }
   for (const client of sseClients) {
     writeSse(client, event);
+  }
+}
+
+function flushShuffleQueue(): void {
+  shuffleFlush = undefined;
+  for (let index = shuffleQueue.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffleQueue[index], shuffleQueue[swapIndex]] = [shuffleQueue[swapIndex], shuffleQueue[index]];
+  }
+  for (const item of shuffleQueue.splice(0)) {
+    publish(item.event, item.local, true);
   }
 }
 
