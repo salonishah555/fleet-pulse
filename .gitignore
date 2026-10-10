@@ -1,0 +1,12 @@
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.angular/
+coverage/
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.log
+.idea/
