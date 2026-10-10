@@ -10,3 +10,4 @@ coverage/
 !.env.*.example
 *.log
 .idea/
+frontend/fleet-pulse-ui/package.json.backup
