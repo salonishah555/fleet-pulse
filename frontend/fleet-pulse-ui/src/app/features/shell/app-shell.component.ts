@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
 import { FleetStore } from '../../core/state/fleet-store.service';
@@ -61,9 +61,31 @@ import { FleetStore } from '../../core/state/fleet-store.service';
             <span class="status-pill" [class.healthy]="!store.stale()" [class.degraded]="store.stale()">
               {{ store.connectionStatus() }}
             </span>
-            <button type="button" class="icon-button" aria-label="Log out" (click)="logout()">
-              {{ initials }}
-            </button>
+            @if (auth.user(); as user) {
+              <div class="profile-menu-wrap">
+                <button
+                  type="button"
+                  class="icon-button"
+                  aria-label="Open profile menu"
+                  aria-haspopup="menu"
+                  [attr.aria-expanded]="profileMenuOpen()"
+                  (click)="toggleProfileMenu($event)"
+                >
+                  {{ initials }}
+                </button>
+                @if (profileMenuOpen()) {
+                  <div class="profile-menu" role="menu" aria-label="Profile menu">
+                    <div class="profile-menu-header">
+                      <strong>{{ displayName() }}</strong>
+                      <span>{{ user.role }}</span>
+                    </div>
+                    <button type="button" role="menuitem" class="profile-menu-item danger" (click)="logout()">Logout</button>
+                  </div>
+                }
+              </div>
+            } @else {
+              <a class="nav-item login-action" routerLink="/login">Login</a>
+            }
           </div>
         </header>
         <router-outlet />
@@ -76,6 +98,8 @@ export class AppShellComponent implements OnInit {
   readonly store = inject(FleetStore);
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  readonly profileMenuOpen = signal(false);
+  readonly displayName = computed(() => this.auth.user()?.email ?? this.auth.user()?.role ?? 'Signed in');
 
   get title(): string {
     return 'Operations Dashboard';
@@ -89,8 +113,27 @@ export class AppShellComponent implements OnInit {
     this.store.load();
   }
 
+  toggleProfileMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    this.profileMenuOpen.update((open) => !open);
+  }
+
   logout(): void {
+    this.profileMenuOpen.set(false);
+    this.store.realtime.disconnect();
     this.auth.logout();
     void this.router.navigateByUrl('/login');
+  }
+
+  @HostListener('document:click', ['$event.target'])
+  closeProfileMenuOnOutsideClick(target: EventTarget | null): void {
+    if (!this.profileMenuOpen()) return;
+    if (target instanceof Element && target.closest('.profile-menu-wrap')) return;
+    this.profileMenuOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  closeProfileMenuOnEscape(): void {
+    this.profileMenuOpen.set(false);
   }
 }

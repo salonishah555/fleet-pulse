@@ -121,6 +121,10 @@ Invoke-RestMethod http://localhost:3000/chaos -Method Delete -Headers $headers
 
 Supported chaos controls include rate changes, WebSocket down/silent, SSE down, dropped/duplicate/shuffled/malformed events, token TTL, HTTP 500/429, slow HTTP responses, and process kill.
 
+## HTTP Resilience
+
+The Angular HTTP client applies a 10 second timeout to API calls. GET requests are retried up to three times for network failures, HTTP 429 and HTTP 502/503/504. Mutations are not retried automatically. HTTP 429 responses honor `Retry-After`; the mock backend emits `Retry-After: 1` when chaos HTTP 429 mode is active.
+
 ## Architecture Notes
 
 - Backend state is deterministic in memory and generates 2,000 services.

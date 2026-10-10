@@ -185,7 +185,7 @@ if (process.env['NODE_ENV'] !== 'test') {
   process.on('SIGTERM', shutdown);
 }
 
-function chaosHttpMiddleware(req: Request, _res: Response, next: NextFunction): void {
+function chaosHttpMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (req.method === 'DELETE' && req.path === '/chaos') {
     next();
     return;
@@ -196,6 +196,7 @@ function chaosHttpMiddleware(req: Request, _res: Response, next: NextFunction): 
     return;
   }
   if (httpMode === '429') {
+    res.setHeader('Retry-After', '1');
     next(new ApiError(429, 'chaos_http_429', 'Chaos HTTP 429 mode is active'));
     return;
   }

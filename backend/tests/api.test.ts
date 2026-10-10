@@ -116,6 +116,8 @@ describe('Fleet Pulse API', () => {
     expect(validation.body.available).toBe(false);
 
     await request(app).post('/chaos').set('Authorization', `Bearer ${auth.accessToken}`).send({ rate: 2000, http: '429' }).expect(200);
+    const throttled = await request(app).get('/health').expect(429);
+    expect(throttled.header['retry-after']).toBe('1');
     await request(app).delete('/chaos').set('Authorization', `Bearer ${auth.accessToken}`).expect(200);
   });
 });

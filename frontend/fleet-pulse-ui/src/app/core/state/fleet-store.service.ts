@@ -76,6 +76,10 @@ export class FleetStore {
       })),
   );
 
+  constructor() {
+    this.auth.logout$.subscribe(() => this.realtime.disconnect());
+  }
+
   load(): void {
     if (this.loading()) return;
     this.loading.set(true);
