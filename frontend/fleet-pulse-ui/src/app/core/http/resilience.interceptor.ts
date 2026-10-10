@@ -1,21 +1,22 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
-import { retry, throwError, timeout, timer } from 'rxjs';
+import { TimeoutError, retry, throwError, timeout, timer } from 'rxjs';
 
-const apiBaseUrl = 'http://localhost:3000';
+const apiBaseUrl = 'http://localhost:4000';
 const requestTimeoutMs = 10_000;
 const maxRetryAttempts = 3;
 const baseRetryDelayMs = 250;
 
 export const resilienceInterceptor: HttpInterceptorFn = (req, next) => {
   const isApiRequest = req.url.startsWith(apiBaseUrl);
-  const isRetryableMethod = req.method === 'GET';
+  const hasIdempotencyKey = Boolean(req.headers.get('Idempotency-Key'));
+  const isRetryableMethod = req.method === 'GET' || (req.method === 'POST' && hasIdempotencyKey);
 
   return next(req).pipe(
     timeout({ each: requestTimeoutMs }),
     retry({
       count: isApiRequest && isRetryableMethod ? maxRetryAttempts : 0,
       delay: (error: unknown, retryAttempt) => {
-        if (!isTransientHttpError(error)) {
+        if (!(error instanceof TimeoutError) && !isTransientHttpError(error)) {
           return throwError(() => error);
         }
         return timer(retryDelay(error, retryAttempt));
@@ -31,8 +32,8 @@ function isTransientHttpError(error: unknown): error is HttpErrorResponse {
   return error.status === 0 || error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504;
 }
 
-function retryDelay(error: HttpErrorResponse, retryAttempt: number): number {
-  if (error.status === 429) {
+function retryDelay(error: HttpErrorResponse | TimeoutError, retryAttempt: number): number {
+  if (error instanceof HttpErrorResponse && error.status === 429) {
     const retryAfter = parseRetryAfter(error.headers.get('Retry-After'));
     if (retryAfter !== undefined) {
       return retryAfter;

@@ -13,7 +13,20 @@ export interface FleetService {
   errorRate: number;
   rps: number;
   updatedAt: Date;
-  trend: number[];
+  statusChanged: boolean;
+  trend: {
+    latency: number[];
+    errorRate: number[];
+    throughput: number[];
+  };
+}
+
+export interface MetricPoint {
+  ts: number;
+  p95: number;
+  errRate: number;
+  rps: number;
+  status: ServiceStatus;
 }
 
 export interface FleetSummary {
@@ -37,9 +50,12 @@ export interface Incident {
 export interface AlertRule {
   id: string;
   name: string;
-  metric: 'p95 latency' | 'error rate' | 'throughput';
-  comparator: '>' | '<';
-  threshold: number;
+  conditions: {
+    metric: 'p95 latency' | 'error rate' | 'throughput';
+    comparator: '>' | '>=' | '<' | '<=';
+    threshold: number;
+    durationSec: number;
+  }[];
   scope: string;
   enabled: boolean;
 }

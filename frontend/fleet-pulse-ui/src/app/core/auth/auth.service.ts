@@ -1,13 +1,14 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject, catchError, finalize, of, shareReplay, tap, throwError } from 'rxjs';
 import type { AuthResponse, User } from '../models/api.models';
 
-const apiBaseUrl = 'http://localhost:3000';
+const apiBaseUrl = 'http://localhost:4000';
 const expirySkewMs = 5_000;
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+  private readonly http = inject(HttpClient);
   private readonly session = signal<AuthSession | null>(readSession());
   private readonly logoutSubject = new Subject<void>();
   private refreshInFlight$?: Observable<AuthResponse>;
@@ -20,8 +21,6 @@ export class AuthService {
   readonly isAuthenticated = computed(() => this.hasValidAccessToken());
   readonly isOperator = computed(() => this.user()?.role === 'operator');
   readonly logout$ = this.logoutSubject.asObservable();
-
-  constructor(private readonly http: HttpClient) {}
 
   login(email: string, password: string): Observable<AuthResponse> {
     return this.http.post<AuthResponse>(`${apiBaseUrl}/auth/login`, { email, password }).pipe(tap((session) => this.setSession(session)));
@@ -64,7 +63,7 @@ export class AuthService {
   }
 
   demoLogin(role: User['role'] = 'operator'): Observable<AuthResponse> {
-    return this.login(role === 'operator' ? 'operator@fleetpulse.dev' : 'viewer@fleetpulse.dev', role === 'operator' ? 'operator123' : 'viewer123');
+    return this.login(role === 'operator' ? 'operator@pulse.dev' : 'viewer@pulse.dev', 'pulse123');
   }
 
   logout(): void {

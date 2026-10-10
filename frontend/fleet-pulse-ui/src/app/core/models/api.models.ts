@@ -26,6 +26,7 @@ export interface FleetServiceDto {
   errRate: number;
   rps: number;
   updatedAt: number;
+  seq?: number;
 }
 
 export interface ServicesResponse {

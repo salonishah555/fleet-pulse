@@ -25,9 +25,9 @@ describe('AuthService', () => {
 
   it('stores a successful login session', async () => {
     const response = authResponse('access-token', 'refresh-token');
-    const result = firstValueFrom(service.login('operator@fleetpulse.dev', 'operator123'));
+    const result = firstValueFrom(service.login('operator@pulse.dev', 'pulse123'));
 
-    const request = http.expectOne('http://localhost:3000/auth/login');
+    const request = http.expectOne('http://localhost:4000/auth/login');
     expect(request.request.method).toBe('POST');
     request.flush(response);
 
@@ -39,9 +39,9 @@ describe('AuthService', () => {
   });
 
   it('does not store a session when login fails', async () => {
-    const result = firstValueFrom(service.login('operator@fleetpulse.dev', 'wrong-password'));
+    const result = firstValueFrom(service.login('operator@pulse.dev', 'wrong-password'));
 
-    http.expectOne('http://localhost:3000/auth/login').flush(
+    http.expectOne('http://localhost:4000/auth/login').flush(
       { error: { code: 'invalid_credentials', message: 'Email or password is incorrect' } },
       { status: 401, statusText: 'Unauthorized' },
     );
@@ -63,7 +63,7 @@ describe('AuthService', () => {
     const refreshed = authResponse('new-access-token', 'new-refresh-token');
     const result = firstValueFrom(service.ensureValidSession());
 
-    const request = http.expectOne('http://localhost:3000/auth/refresh');
+    const request = http.expectOne('http://localhost:4000/auth/refresh');
     expect(request.request.body).toEqual({ refreshToken: 'refresh-token' });
     request.flush(refreshed);
 
@@ -88,6 +88,6 @@ function authResponse(accessToken: string, refreshToken: string, expiresAt = Dat
     accessToken,
     refreshToken,
     expiresAt,
-    user: { id: 'usr-operator', email: 'operator@fleetpulse.dev', role: 'operator' },
+    user: { id: 'usr-operator', email: 'operator@pulse.dev', role: 'operator' },
   };
 }

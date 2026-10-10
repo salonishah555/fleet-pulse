@@ -45,7 +45,7 @@ describe('AppShellComponent profile menu', () => {
   it('opens and closes the profile menu from the avatar control', () => {
     click('button[aria-label="Open profile menu"]');
     expect(query('.profile-menu')).not.toBeNull();
-    expect(text()).toContain('operator@fleetpulse.dev');
+    expect(text()).toContain('operator@pulse.dev');
     expect(text()).toContain('Logout');
 
     click('button[aria-label="Open profile menu"]');
@@ -96,15 +96,16 @@ describe('AppShellComponent profile menu', () => {
 });
 
 class MockAuthService {
-  readonly currentUser = signal<User | null>({ id: 'usr-operator', email: 'operator@fleetpulse.dev', role: 'operator' });
+  readonly currentUser = signal<User | null>({ id: 'usr-operator', email: 'operator@pulse.dev', role: 'operator' });
   readonly user = this.currentUser.asReadonly();
   readonly isOperator = () => this.currentUser()?.role === 'operator';
   readonly logout = vi.fn(() => this.currentUser.set(null));
 }
 
 class MockFleetStore {
-  readonly realtime = { disconnect: vi.fn() };
+  readonly realtime = { disconnect: vi.fn(), lastEventAgeMs: signal<number | null>(0), eventStale: signal(false) };
   readonly load = vi.fn();
+  readonly latestRuleNotification = () => null;
   readonly transport = () => 'WebSocket';
   readonly eventOffset = () => 42;
   readonly lastEvent = () => new Date(0);

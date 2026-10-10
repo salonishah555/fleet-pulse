@@ -31,12 +31,12 @@ describe('authInterceptor', () => {
 
   it('attaches the bearer token to protected API requests', async () => {
     const auth = TestBed.inject(AuthService);
-    const login = firstValueFrom(auth.login('operator@fleetpulse.dev', 'operator123'));
-    http.expectOne('http://localhost:3000/auth/login').flush(authResponse('access-token', 'refresh-token'));
+    const login = firstValueFrom(auth.login('operator@pulse.dev', 'pulse123'));
+    http.expectOne('http://localhost:4000/auth/login').flush(authResponse('access-token', 'refresh-token'));
     await login;
 
-    const response = firstValueFrom(client.get('http://localhost:3000/metrics/snapshot'));
-    const request = http.expectOne('http://localhost:3000/metrics/snapshot');
+    const response = firstValueFrom(client.get('http://localhost:4000/metrics/snapshot'));
+    const request = http.expectOne('http://localhost:4000/metrics/snapshot');
     expect(request.request.headers.get('Authorization')).toBe('Bearer access-token');
     request.flush({ ok: true });
 
@@ -45,40 +45,65 @@ describe('authInterceptor', () => {
 
   it('refreshes and retries protected requests after a 401', async () => {
     const auth = TestBed.inject(AuthService);
-    const login = firstValueFrom(auth.login('operator@fleetpulse.dev', 'operator123'));
-    http.expectOne('http://localhost:3000/auth/login').flush(authResponse('old-access-token', 'refresh-token'));
+    const login = firstValueFrom(auth.login('operator@pulse.dev', 'pulse123'));
+    http.expectOne('http://localhost:4000/auth/login').flush(authResponse('old-access-token', 'refresh-token'));
     await login;
 
-    const response = firstValueFrom(client.get('http://localhost:3000/alert-rules'));
+    const response = firstValueFrom(client.get('http://localhost:4000/alert-rules'));
 
-    const firstAttempt = http.expectOne('http://localhost:3000/alert-rules');
+    const firstAttempt = http.expectOne('http://localhost:4000/alert-rules');
     expect(firstAttempt.request.headers.get('Authorization')).toBe('Bearer old-access-token');
     firstAttempt.flush({ error: { code: 'token_expired', message: 'Authentication token has expired' } }, { status: 401, statusText: 'Unauthorized' });
 
-    const refresh = http.expectOne('http://localhost:3000/auth/refresh');
+    const refresh = http.expectOne('http://localhost:4000/auth/refresh');
     expect(refresh.request.headers.has('Authorization')).toBe(false);
     refresh.flush(authResponse('new-access-token', 'new-refresh-token'));
 
-    const retry = http.expectOne('http://localhost:3000/alert-rules');
+    const retry = http.expectOne('http://localhost:4000/alert-rules');
     expect(retry.request.headers.get('Authorization')).toBe('Bearer new-access-token');
     retry.flush({ items: [] });
 
     await expect(response).resolves.toEqual({ items: [] });
   });
 
-  it('clears the session when a 401 cannot be refreshed', async () => {
+  it('uses one refresh request for ten concurrent rejected requests', async () => {
     const auth = TestBed.inject(AuthService);
-    const login = firstValueFrom(auth.login('operator@fleetpulse.dev', 'operator123'));
-    http.expectOne('http://localhost:3000/auth/login').flush(authResponse('old-access-token', 'refresh-token'));
+    const login = firstValueFrom(auth.login('operator@pulse.dev', 'pulse123'));
+    http.expectOne('http://localhost:4000/auth/login').flush(authResponse('old-access-token', 'refresh-token'));
     await login;
 
-    const response = firstValueFrom(client.get('http://localhost:3000/metrics/snapshot'));
+    const responses = Array.from({ length: 10 }, (_value, index) =>
+      firstValueFrom(client.get(`http://localhost:4000/services?page=${index + 1}`)),
+    );
+    const initial = http.match((request) => request.url.startsWith('http://localhost:4000/services'));
+    expect(initial).toHaveLength(10);
+    for (const request of initial) {
+      request.flush({ error: { code: 'token_expired', message: 'Token expired' } }, { status: 401, statusText: 'Unauthorized' });
+    }
 
-    http.expectOne('http://localhost:3000/metrics/snapshot').flush(
+    const refreshRequests = http.match('http://localhost:4000/auth/refresh');
+    expect(refreshRequests).toHaveLength(1);
+    refreshRequests[0].flush(authResponse('new-access-token', 'rotated-refresh-token'));
+
+    const retried = http.match((request) => request.url.startsWith('http://localhost:4000/services'));
+    expect(retried).toHaveLength(10);
+    retried.forEach((request) => request.flush({ items: [] }));
+    await expect(Promise.all(responses)).resolves.toHaveLength(10);
+  });
+
+  it('clears the session when a 401 cannot be refreshed', async () => {
+    const auth = TestBed.inject(AuthService);
+    const login = firstValueFrom(auth.login('operator@pulse.dev', 'pulse123'));
+    http.expectOne('http://localhost:4000/auth/login').flush(authResponse('old-access-token', 'refresh-token'));
+    await login;
+
+    const response = firstValueFrom(client.get('http://localhost:4000/metrics/snapshot'));
+
+    http.expectOne('http://localhost:4000/metrics/snapshot').flush(
       { error: { code: 'token_expired', message: 'Authentication token has expired' } },
       { status: 401, statusText: 'Unauthorized' },
     );
-    http.expectOne('http://localhost:3000/auth/refresh').flush(
+    http.expectOne('http://localhost:4000/auth/refresh').flush(
       { error: { code: 'invalid_refresh_token', message: 'Refresh token is invalid or expired' } },
       { status: 401, statusText: 'Unauthorized' },
     );
@@ -93,6 +118,6 @@ function authResponse(accessToken: string, refreshToken: string, expiresAt = Dat
     accessToken,
     refreshToken,
     expiresAt,
-    user: { id: 'usr-operator', email: 'operator@fleetpulse.dev', role: 'operator' },
+    user: { id: 'usr-operator', email: 'operator@pulse.dev', role: 'operator' },
   };
 }

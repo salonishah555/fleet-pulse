@@ -4,7 +4,7 @@ import { Router } from '@angular/router';
 import { catchError, switchMap, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 
-const apiBaseUrl = 'http://localhost:3000';
+const apiBaseUrl = 'http://localhost:4000';
 const authPaths = ['/auth/login', '/auth/refresh'];
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
@@ -23,8 +23,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       return auth.refreshSession().pipe(
         switchMap((session) => next(withBearer(req, session.accessToken))),
         catchError((refreshError: unknown) => {
+          const returnUrl = router.url === '/login' ? '/dashboard' : router.url;
           auth.logout();
-          void router.navigateByUrl('/login');
+          void router.navigate(['/login'], { queryParams: { returnUrl } });
           return throwError(() => refreshError);
         }),
       );

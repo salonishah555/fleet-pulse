@@ -1,7 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
+import { filter } from 'rxjs';
 import { AuthService } from '../../core/auth/auth.service';
 import { FleetStore } from '../../core/state/fleet-store.service';
 
@@ -22,8 +24,11 @@ import { FleetStore } from '../../core/state/fleet-store.service';
         <nav class="nav-list">
           <a mat-button class="nav-item" routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a mat-button class="nav-item" routerLink="/services" routerLinkActive="active">Services</a>
-          <a mat-button class="nav-item" routerLink="/alert-rules" routerLinkActive="active">Alert rules</a>
+          @if (auth.isOperator()) {
+            <a mat-button class="nav-item" routerLink="/rules" routerLinkActive="active">Alert rules</a>
+          }
           <a mat-button class="nav-item" routerLink="/incidents" routerLinkActive="active">Incidents</a>
+          <a mat-button class="nav-item" routerLink="/settings" routerLinkActive="active">Settings</a>
           @if (auth.isOperator()) {
             <a mat-button class="nav-item" routerLink="/chaos" routerLinkActive="active">Chaos</a>
           }
@@ -38,15 +43,23 @@ import { FleetStore } from '../../core/state/fleet-store.service';
           <dl>
             <div>
               <dt>Offset</dt>
-              <dd>{{ store.eventOffset() }}</dd>
+              <dd class="connection-offset">{{ store.eventOffset() }}</dd>
             </div>
             <div>
               <dt>Last event</dt>
-              <dd>{{ store.lastEvent() | date: 'mediumTime' }}</dd>
+              <dd class="connection-last-event">
+                @if (store.lastEvent(); as lastEvent) {
+                  <span>{{ lastEvent | date: 'mediumTime' }}</span>
+                  <span class="connection-age">({{ ((store.realtime.lastEventAgeMs() ?? 0) / 1000) | number: '1.0-0' }}s ago)</span>
+                } @else {
+                  <span>Not received</span>
+                  <span class="connection-age" aria-hidden="true">&nbsp;</span>
+                }
+              </dd>
             </div>
             <div>
               <dt>State</dt>
-              <dd>{{ store.stale() ? 'Stale' : 'Live' }}</dd>
+              <dd role="status" aria-live="polite">{{ store.connectionStatus() }}</dd>
             </div>
           </dl>
         </section>
@@ -55,10 +68,23 @@ import { FleetStore } from '../../core/state/fleet-store.service';
       <section class="workspace">
         <header class="topbar">
           <div>
-            <span class="eyebrow">Production / us-east primary</span>
-            <h1>{{ title }}</h1>
+            <nav class="eyebrow breadcrumbs" aria-label="Breadcrumb">
+              <a routerLink="/dashboard">Production / us-east primary</a>
+              @for (breadcrumb of breadcrumbs(); let last = $last; track breadcrumb.label) {
+                <span aria-hidden="true">/</span>
+                @if (breadcrumb.url && !last) {
+                  <a [routerLink]="breadcrumb.url">{{ breadcrumb.label }}</a>
+                } @else {
+                  <span [attr.aria-current]="last ? 'page' : null">{{ breadcrumb.label }}</span>
+                }
+              }
+            </nav>
+            <h1>{{ title() }}</h1>
           </div>
           <div class="topbar-actions">
+            @if (store.latestRuleNotification(); as notification) {
+              <span class="rule-notification" role="status" aria-live="polite">{{ notification }}</span>
+            }
             <span class="status-pill" [class.healthy]="!store.stale()" [class.degraded]="store.stale()">
               {{ store.connectionStatus() }}
             </span>
@@ -100,12 +126,13 @@ export class AppShellComponent implements OnInit {
   readonly store = inject(FleetStore);
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
   readonly profileMenuOpen = signal(false);
   readonly displayName = computed(() => this.auth.user()?.email ?? this.auth.user()?.role ?? 'Signed in');
 
-  get title(): string {
-    return 'Operations Dashboard';
-  }
+  readonly title = signal('Operations Dashboard');
+  readonly breadcrumbs = signal<BreadcrumbItem[]>([{ label: 'Dashboard' }]);
 
   get initials(): string {
     return (this.auth.user()?.email ?? 'FP').slice(0, 2).toUpperCase();
@@ -113,6 +140,13 @@ export class AppShellComponent implements OnInit {
 
   ngOnInit(): void {
     this.store.load();
+    this.updatePageTitle();
+    this.router.events
+      .pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => this.updatePageTitle());
   }
 
   toggleProfileMenu(event: MouseEvent): void {
@@ -138,4 +172,30 @@ export class AppShellComponent implements OnInit {
   closeProfileMenuOnEscape(): void {
     this.profileMenuOpen.set(false);
   }
+
+  private updatePageTitle(): void {
+    let activeRoute = this.route.snapshot;
+    while (activeRoute.firstChild) activeRoute = activeRoute.firstChild;
+    const pageTitle = String(activeRoute.data['pageTitle'] ?? 'Operations Dashboard');
+    this.title.set(pageTitle);
+    this.breadcrumbs.set(parseBreadcrumbs(activeRoute.data['breadcrumbs'], pageTitle));
+  }
+}
+
+interface BreadcrumbItem {
+  label: string;
+  url?: string;
+}
+
+function parseBreadcrumbs(value: unknown, fallback: string): BreadcrumbItem[] {
+  if (!Array.isArray(value)) return [{ label: fallback }];
+  const breadcrumbs = value.filter(
+    (item): item is BreadcrumbItem =>
+      typeof item === 'object' &&
+      item !== null &&
+      'label' in item &&
+      typeof item.label === 'string' &&
+      (!('url' in item) || typeof item.url === 'string'),
+  );
+  return breadcrumbs.length ? breadcrumbs : [{ label: fallback }];
 }

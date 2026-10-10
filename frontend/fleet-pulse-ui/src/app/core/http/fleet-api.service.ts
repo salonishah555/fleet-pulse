@@ -1,8 +1,8 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import type { AlertRuleDto, AlertRulesResponse, MetricEvent, ServicesResponse, ServiceStatus, SnapshotResponse } from '../models/api.models';
 
-const apiBaseUrl = 'http://localhost:3000';
+const apiBaseUrl = 'http://localhost:4000';
 
 export interface ServiceListParams {
   q?: string;
@@ -21,9 +21,24 @@ export interface RuleInput {
   conditions: AlertRuleDto['conditions'];
 }
 
+export interface MetricHistoryPoint {
+  ts: number;
+  p95: number;
+  errRate: number;
+  rps: number;
+  status: ServiceStatus;
+}
+
+export interface MetricHistoryResponse {
+  serviceId: string;
+  minutes: number;
+  points?: MetricHistoryPoint[];
+  items?: MetricHistoryPoint[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class FleetApiService {
-  constructor(private readonly http: HttpClient) {}
+  private readonly http = inject(HttpClient);
 
   services(params: ServiceListParams) {
     return this.http.get<ServicesResponse>(`${apiBaseUrl}/services`, { params: toParams(params) });
@@ -34,11 +49,15 @@ export class FleetApiService {
   }
 
   rules() {
-    return this.http.get<AlertRulesResponse>(`${apiBaseUrl}/alert-rules`);
+    return this.http.get<AlertRulesResponse>(`${apiBaseUrl}/rules`);
   }
 
-  history(serviceId: string, minutes = 30) {
-    return this.http.get<{ serviceId: string; minutes: number; items: Array<{ ts: number; p95: number; errRate: number; rps: number; status: ServiceStatus }> }>(
+  rule(id: string) {
+    return this.http.get<AlertRuleDto>(`${apiBaseUrl}/rules/${encodeURIComponent(id)}`);
+  }
+
+  history(serviceId: string, minutes = 15) {
+    return this.http.get<MetricHistoryResponse>(
       `${apiBaseUrl}/metrics/history`,
       { params: new HttpParams().set('serviceId', serviceId).set('minutes', minutes) },
     );
@@ -53,19 +72,22 @@ export class FleetApiService {
   validateRuleName(name: string, excludeId?: string) {
     let params = new HttpParams().set('name', name);
     if (excludeId) params = params.set('excludeId', excludeId);
-    return this.http.get<{ name: string; available: boolean }>(`${apiBaseUrl}/alert-rules/validate-name`, { params });
+    return this.http.get<{ name: string; available: boolean }>(`${apiBaseUrl}/rules/check-name`, { params });
   }
 
-  createRule(rule: RuleInput) {
-    return this.http.post<AlertRuleDto>(`${apiBaseUrl}/alert-rules`, rule);
+  createRule(rule: RuleInput & { idempotencyKey?: string }) {
+    const headers = rule.idempotencyKey ? { 'Idempotency-Key': rule.idempotencyKey } : undefined;
+    const body = { ...rule };
+    delete body.idempotencyKey;
+    return this.http.post<AlertRuleDto>(`${apiBaseUrl}/rules`, body, { headers });
   }
 
   updateRule(id: string, rule: Partial<RuleInput>) {
-    return this.http.patch<AlertRuleDto>(`${apiBaseUrl}/alert-rules/${id}`, rule);
+    return this.http.put<AlertRuleDto>(`${apiBaseUrl}/rules/${encodeURIComponent(id)}`, rule);
   }
 
   deleteRule(id: string) {
-    return this.http.delete<void>(`${apiBaseUrl}/alert-rules/${id}`);
+    return this.http.delete<void>(`${apiBaseUrl}/rules/${encodeURIComponent(id)}`);
   }
 
   chaos() {

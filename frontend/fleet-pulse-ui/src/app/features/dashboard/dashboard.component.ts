@@ -79,7 +79,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
                 <div><span>P95 latency</span><strong>{{ service.latency }}ms</strong></div>
                 <div><span>Error rate</span><strong>{{ service.errorRate | number: '1.2-2' }}%</strong></div>
               </div>
-              <app-metric-chart [values]="service.trend" [label]="service.name + ' latency trend'" />
+              <app-metric-chart [values]="service.trend.latency" [label]="service.name + ' latency trend'" />
             }
           </article>
 

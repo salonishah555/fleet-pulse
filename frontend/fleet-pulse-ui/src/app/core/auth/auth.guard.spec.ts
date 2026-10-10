@@ -25,10 +25,10 @@ describe('auth guards', () => {
   });
 
   it('redirects unauthenticated users to login', async () => {
-    const result = await firstValueFrom(TestBed.runInInjectionContext(() => authGuard({} as never, {} as never) as never));
+    const result = await firstValueFrom(TestBed.runInInjectionContext(() => authGuard({} as never, { url: '/services?q=api' } as never) as never));
 
     expect(result instanceof UrlTree).toBe(true);
-    expect(router.serializeUrl(result as UrlTree)).toBe('/login');
+    expect(router.serializeUrl(result as UrlTree)).toBe('/login?returnUrl=%2Fservices%3Fq%3Dapi');
   });
 
   it('refreshes an expired stored session before allowing protected routes', async () => {
@@ -40,7 +40,7 @@ describe('auth guards', () => {
     http = TestBed.inject(HttpTestingController);
 
     const result = firstValueFrom(TestBed.runInInjectionContext(() => authGuard({} as never, {} as never) as never));
-    http.expectOne('http://localhost:3000/auth/refresh').flush(authResponse('new-token', 'new-refresh-token'));
+    http.expectOne('http://localhost:4000/auth/refresh').flush(authResponse('new-token', 'new-refresh-token'));
 
     await expect(result).resolves.toBe(true);
   });
@@ -55,7 +55,7 @@ describe('auth guards', () => {
     router = TestBed.inject(Router);
 
     const result = firstValueFrom(TestBed.runInInjectionContext(() => operatorGuard({} as never, {} as never) as never));
-    http.expectOne('http://localhost:3000/auth/refresh').flush(authResponse('new-viewer-token', 'new-viewer-refresh-token', Date.now() + 60_000, 'viewer'));
+    http.expectOne('http://localhost:4000/auth/refresh').flush(authResponse('new-viewer-token', 'new-viewer-refresh-token', Date.now() + 60_000, 'viewer'));
 
     const resolved = await result;
     expect(resolved instanceof UrlTree).toBe(true);

@@ -1,8 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
-import { finalize } from 'rxjs';
+import { ActivatedRoute, Router } from '@angular/router';
+import { finalize, take } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -46,12 +46,13 @@ export class LoginComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly form = this.fb.nonNullable.group({
-    email: ['operator@fleetpulse.dev', [Validators.required, Validators.email]],
-    password: ['operator123', Validators.required],
+    email: ['operator@pulse.dev', [Validators.required, Validators.email]],
+    password: ['pulse123', Validators.required],
   });
 
   login(): void {
@@ -63,15 +64,24 @@ export class LoginComponent {
       .login(email, password)
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
-        next: () => void this.router.navigateByUrl('/dashboard'),
+        next: () => {
+          this.route.queryParamMap.pipe(take(1)).subscribe((params) => {
+            const returnUrl = safeReturnUrl(params.get('returnUrl'));
+            void this.router.navigateByUrl(returnUrl);
+          });
+        },
         error: () => this.error.set('Unable to sign in with those credentials.'),
       });
   }
 
   useDemo(role: 'operator' | 'viewer'): void {
     this.form.setValue({
-      email: role === 'operator' ? 'operator@fleetpulse.dev' : 'viewer@fleetpulse.dev',
-      password: role === 'operator' ? 'operator123' : 'viewer123',
+      email: role === 'operator' ? 'operator@pulse.dev' : 'viewer@pulse.dev',
+      password: 'pulse123',
     });
   }
+}
+
+function safeReturnUrl(value: string | null): string {
+  return value?.startsWith('/') && !value.startsWith('//') && !value.startsWith('/login') ? value : '/dashboard';
 }

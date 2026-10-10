@@ -5,17 +5,22 @@ import { MatButtonModule } from '@angular/material/button';
   selector: 'app-pagination',
   imports: [MatButtonModule],
   template: `
-    <footer class="pager">
-      <button matButton="outlined" type="button" (click)="previous.emit()" [disabled]="page() === 1">Previous</button>
-      <span>Page {{ page() }} of {{ pageCount() }}</span>
-      <button matButton="outlined" type="button" (click)="next.emit()" [disabled]="page() === pageCount()">Next</button>
-    </footer>
+    <nav class="pager" aria-label="Services pagination">
+      <span>Showing {{ firstItem() }} - {{ lastItem() }} of {{ totalItems() }} · Page {{ page() }} of {{ pageCount() }}</span>
+      <div class="pager-actions">
+        <button matButton="outlined" type="button" aria-label="Previous page" (click)="previous.emit()" [disabled]="page() === 1">Previous</button>
+        <button matButton="outlined" type="button" aria-label="Next page" (click)="next.emit()" [disabled]="page() === pageCount()">Next</button>
+      </div>
+    </nav>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PaginationComponent {
   readonly page = input.required<number>();
   readonly pageCount = input.required<number>();
+  readonly firstItem = input.required<number>();
+  readonly lastItem = input.required<number>();
+  readonly totalItems = input.required<number>();
   readonly previous = output<void>();
   readonly next = output<void>();
 }
