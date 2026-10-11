@@ -11,7 +11,7 @@ const app = createApp();
 
 async function loginAs(email = 'operator@pulse.dev', password = 'pulse123') {
   const response = await request(app).post('/auth/login').send({ email, password }).expect(200);
-  return response.body as { accessToken: string; refreshToken: string; expiresAt: number; user: { role: string; email: string } };
+  return response.body as { accessToken: string; refreshToken: string; expiresAt: number; expiresIn: number; user: { role: string; email: string } };
 }
 
 function bearer(token: string) {
@@ -51,7 +51,9 @@ describe('Fleet Pulse API', () => {
       .expect(200);
     expect(history.body.points).toEqual(expect.any(Array));
     expect(history.body.items).toEqual(history.body.points);
-    await request(app).get(`/metrics/replay?since=${snapshot.body.offset - 1}`).set(bearer(auth.accessToken)).expect(200);
+    await request(app).get(`/metrics/replay?since=${snapshot.body.offset}`).set(bearer(auth.accessToken)).expect(200);
+    const expiredReplay = await request(app).get('/metrics/replay?since=0').set(bearer(auth.accessToken)).expect(410);
+    expect(expiredReplay.body.error).toMatchObject({ code: 'replay_too_old', details: [] });
   });
 
   it('supports rule collection, item CRUD, and check-name routes', async () => {
@@ -113,19 +115,20 @@ describe('Fleet Pulse API', () => {
   });
 
   it('supports chaos rate, token TTL, HTTP failures, and reset', async () => {
-    const auth = await loginAs();
-    const headers = bearer(auth.accessToken);
-    const configured = await request(app).post('/chaos').set(headers).send({ rate: 2000, token_ttl: 5, http: '503' }).expect(200);
+    const configured = await request(app).post('/chaos').send({ rate: 2000, token_ttl: 5, http: '503' }).expect(200);
     expect(configured.body).toMatchObject({ rate: 2000, token_ttl: 5, http: '503' });
     expect(configured.body.token_ttl).toBe(5);
-    await request(app).get('/health').expect(503);
+    await request(app).get('/health').expect(200, { status: 'ok' });
+    await request(app).get('/services').expect(503);
 
-    await request(app).delete('/chaos').set(headers).expect(200);
-    await request(app).post('/chaos').set(headers).send({ token_ttl: 5 }).expect(200);
+    await request(app).delete('/chaos').expect(200);
+    await request(app).post('/chaos').send({ token_ttl: 5 }).expect(200);
     const shortLived = await loginAs();
+    expect(shortLived.expiresIn).toBe(5);
     expect(shortLived.expiresAt - Date.now()).toBeLessThanOrEqual(5000);
-    await request(app).delete('/chaos').set(headers).expect(200);
-    await request(app).get('/health').expect(200);
+    const refreshed = await request(app).post('/auth/refresh').send({ refreshToken: shortLived.refreshToken }).expect(200);
+    expect(refreshed.body.expiresIn).toBe(5);
+    await request(app).delete('/chaos').expect(200);
   });
 
   it('accepts assignment stream chaos values and rejects SSE when configured down', async () => {
@@ -151,6 +154,57 @@ describe('Fleet Pulse API', () => {
     expect(chaosService.shouldDrop(deterministicChaos)).toBe(true);
     expect(chaosService.shouldGarbage(deterministicChaos)).toBe(true);
     expect(chaosService.hasFlag(deterministicChaos, 'duplicate')).toBe(true);
+  });
+
+  it('keeps public endpoints unauthenticated and uses contract 401 error codes', async () => {
+    await request(app).get('/health').expect(200, { status: 'ok' });
+    await request(app).get('/chaos').expect(200);
+    await request(app).post('/chaos').send({ rate: 1 }).expect(200);
+    await request(app).get('/chaos').expect(200, { rate: 1, chaos: [], token_ttl: 60 });
+    await request(app).delete('/chaos').expect(200);
+
+    const missing = await request(app).get('/services').expect(401);
+    expect(missing.body).toEqual({
+      error: { code: 'token_invalid', message: 'Authentication token is required', details: [] },
+    });
+    const invalid = await request(app).get('/services').set(bearer('bad-token')).expect(401);
+    expect(invalid.body.error.code).toBe('token_invalid');
+    expect(invalid.body.error.details).toEqual([]);
+
+    const badCredentials = await request(app).post('/auth/login').send({ email: 'nobody@example.com', password: 'wrong' }).expect(401);
+    expect(badCredentials.body.error.code).toBe('invalid_credentials');
+    const badRefresh = await request(app).post('/auth/refresh').send({ refreshToken: 'unknown' }).expect(401);
+    expect(badRefresh.body.error.code).toBe('refresh_invalid');
+    expect(badRefresh.body.error.details).toEqual([]);
+  });
+
+  it('implements HTTP 500 percentage, 429 headers, and slow response chaos', async () => {
+    await request(app).post('/chaos').send({ http: '500:100' }).expect(200);
+    const failure = await request(app).get('/services').expect(500);
+    expect(failure.body).toEqual({
+      error: { code: 'server_error', message: 'Chaos HTTP 500 mode is active', details: [] },
+    });
+    await request(app).get('/health').expect(200, { status: 'ok' });
+    await request(app).get('/auth/login').expect(404);
+
+    await request(app).post('/chaos').send({ http: '429' }).expect(200);
+    const limited = await request(app).get('/services').expect(429);
+    expect(limited.headers['retry-after']).toBe('2');
+    expect(limited.body.error).toMatchObject({ code: 'rate_limited', details: [] });
+
+    await request(app).post('/chaos').send({ http: null }).expect(200);
+    await request(app).post('/chaos').send({ http: 'slow:80' }).expect(200);
+    const startedAt = Date.now();
+    await request(app).get('/services').expect(401);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(70);
+  });
+
+  it('accepts access_token and connection-local SSE chaos in the query', async () => {
+    const auth = await loginAs();
+    const response = await request(app)
+      .get(`/stream/sse?access_token=${encodeURIComponent(auth.accessToken)}&sse=down`)
+      .expect(503);
+    expect(response.body.error).toMatchObject({ code: 'stream_unavailable', details: [] });
   });
 
   it('applies WebSocket down and silent modes', async () => {

@@ -16,7 +16,7 @@ export function sendError(res: Response, error: ApiError): void {
     error: {
       code: error.code,
       message: error.message,
-      details: error.details,
+      details: [],
     },
   });
 }

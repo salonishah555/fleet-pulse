@@ -30,9 +30,9 @@ export class ChaosService extends EventEmitter {
     if (input['sse'] === 'down') next.sse = 'down';
     if (input['sse'] === null || input['sse'] === '') delete next.sse;
     if (typeof input['chaos'] === 'string') {
-      next.chaos = input['chaos'].split(',').map((value) => value.trim()).filter(Boolean);
+      next.chaos = parseChaosValues(input['chaos'].split(',').map((value) => value.trim()).filter(Boolean));
     } else if (Array.isArray(input['chaos'])) {
-      next.chaos = input['chaos'].map(String);
+      next.chaos = parseChaosValues(input['chaos'].map(String));
     }
     if (input['token_ttl'] !== undefined) {
       const ttl = Number(input['token_ttl']);
@@ -42,7 +42,7 @@ export class ChaosService extends EventEmitter {
     if (input['http'] === null || input['http'] === '') delete next.http;
     if (input['kill'] !== undefined) {
       const kill = Number(input['kill']);
-      if (Number.isFinite(kill) && kill > 0) next.kill = Math.trunc(kill);
+      if (Number.isFinite(kill) && kill > 0) next.kill = kill;
     }
     if (input['kill'] === null || input['kill'] === '') delete next.kill;
 
@@ -57,9 +57,9 @@ export class ChaosService extends EventEmitter {
     return this.get();
   }
 
-  fromQuery(query: Record<string, unknown>): Partial<ChaosState> {
+  fromQuery(query: Record<string, unknown>): ChaosState {
     const parsed = new ChaosService();
-    parsed.merge(this.get() as unknown as Record<string, unknown>);
+    parsed.state = this.get();
     parsed.merge(query);
     return parsed.get();
   }
@@ -68,10 +68,10 @@ export class ChaosService extends EventEmitter {
     return this.percentSwitch(local, 'garbage');
   }
 
-  shouldDrop(local: Partial<ChaosState>): boolean {
+  shouldDrop(local: Partial<ChaosState>, sample = Math.random() * 100): boolean {
     const drop = local.ws?.startsWith('drop:') ? local.ws : undefined;
     const pct = drop ? Number(drop.split(':')[1]) : this.switchPercent(local, 'drop');
-    return Number.isFinite(pct) && Math.random() * 100 < pct;
+    return Number.isFinite(pct) && sample < pct;
   }
 
   hasFlag(local: Partial<ChaosState>, flag: string): boolean {
@@ -89,8 +89,20 @@ export class ChaosService extends EventEmitter {
 
   private switchPercent(local: Partial<ChaosState>, prefix: string): number {
     const value = (local.chaos ?? []).find((entry) => entry.startsWith(`${prefix}:`));
-    return value ? Number(value.split(':')[1]) : Number.NaN;
+    const percentage = value ? Number(value.split(':')[1]) : Number.NaN;
+    return Number.isFinite(percentage) ? Math.min(100, Math.max(0, percentage)) : Number.NaN;
   }
+}
+
+function parseChaosValues(values: string[]): string[] {
+  return values.map((value) => {
+    const [name, rawPercentage] = value.split(':');
+    if ((name === 'drop' || name === 'garbage') && rawPercentage !== undefined) {
+      const percentage = Number(rawPercentage);
+      if (Number.isFinite(percentage)) return `${name}:${Math.min(100, Math.max(0, percentage))}`;
+    }
+    return value;
+  });
 }
 
 export const chaosService = new ChaosService();

@@ -70,15 +70,7 @@ export function createApp() {
   app.use(chaosHttpMiddleware);
 
   app.get('/health', (_req, res) => {
-    const snapshot = getSnapshot();
-    res.json({
-      ok: true,
-      uptimeSec: Math.round(process.uptime()),
-      generatedAt: Date.now(),
-      offset: snapshot.offset,
-      services: snapshot.summary.total,
-      chaos: chaosService.get(),
-    });
+    res.json({ status: 'ok' });
   });
 
   app.post('/auth/login', asyncRoute((req, res) => {
@@ -120,8 +112,12 @@ export function createApp() {
     res.json(getReplay(intQuery(req.query['since'], 0, 0, Number.MAX_SAFE_INTEGER)));
   });
 
-  app.get('/stream/sse', authenticate, (req, res) => {
-    addSseClient(res, intQuery(req.query['since'], 0, 0, Number.MAX_SAFE_INTEGER));
+  app.get(['/stream/sse', '/assistant/stream'], authenticate, (req, res) => {
+    addSseClient(
+      res,
+      intQuery(req.query['since'], getSnapshot().offset, 0, Number.MAX_SAFE_INTEGER),
+      streamChaosOverrides(req),
+    );
   });
 
   app.get('/alert-rules', authenticate, (_req, res) => {
@@ -189,19 +185,16 @@ export function createApp() {
     res.status(204).end();
   });
 
-  app.get('/chaos', authenticate, (_req, res) => {
+  app.get('/chaos', (_req, res) => {
     res.json(chaosService.get());
   });
 
-  app.post('/chaos', authenticate, requireRole('operator'), (req, res) => {
+  app.post('/chaos', (req, res) => {
     const next = chaosService.merge(req.body as Record<string, unknown>);
-    if (next.kill) {
-      setTimeout(() => process.exit(1), next.kill);
-    }
     res.json(next);
   });
 
-  app.delete('/chaos', authenticate, requireRole('operator'), (_req, res) => {
+  app.delete('/chaos', (_req, res) => {
     res.json(chaosService.reset());
   });
 
@@ -232,23 +225,51 @@ if (process.env['NODE_ENV'] !== 'test') {
 }
 
 function chaosHttpMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (req.method === 'DELETE' && req.path === '/chaos') {
+  if (
+    req.path === '/health' ||
+    req.path === '/chaos' ||
+    req.path === '/auth' ||
+    req.path.startsWith('/auth/') ||
+    req.path === '/stream' ||
+    req.path === '/stream/sse' ||
+    req.path === '/assistant/stream'
+  ) {
     next();
     return;
   }
   const httpMode = chaosService.get().http;
+  if (httpMode === '429') {
+    res.setHeader('Retry-After', '2');
+    next(new ApiError(429, 'rate_limited', 'Chaos HTTP 429 mode is active'));
+    return;
+  }
+  const status500 = httpMode?.match(/^500(?::([^:]+))?$/);
+  if (status500) {
+    const percentage = status500[1] === undefined ? 100 : Number(status500[1]);
+    if (Number.isFinite(percentage) && Math.random() * 100 < Math.min(100, Math.max(0, percentage))) {
+      next(new ApiError(500, 'server_error', 'Chaos HTTP 500 mode is active'));
+      return;
+    }
+  }
   const failureStatus = httpMode === 'down' ? 503 : Number(httpMode);
   if (Number.isInteger(failureStatus) && failureStatus >= 400 && failureStatus <= 599) {
-    if (failureStatus === 429) res.setHeader('Retry-After', '1');
     next(new ApiError(failureStatus, `chaos_http_${failureStatus}`, `Chaos HTTP ${failureStatus} mode is active`));
     return;
   }
   if (httpMode?.startsWith('slow')) {
     const delay = Number(httpMode.split(':')[1] ?? 750);
-    setTimeout(next, Number.isFinite(delay) ? Math.min(delay, 5000) : 750);
+    setTimeout(next, Number.isFinite(delay) ? Math.max(0, delay) : 750);
     return;
   }
   next();
+}
+
+function streamChaosOverrides(req: Request): Record<string, unknown> {
+  const overrides: Record<string, unknown> = {};
+  for (const key of ['rate', 'ws', 'sse', 'chaos', 'token_ttl', 'http', 'kill']) {
+    if (req.query[key] !== undefined) overrides[key] = req.query[key];
+  }
+  return overrides;
 }
 
 function respondToIdempotentRuleCreate(req: AuthenticatedRequest, res: Response, body: RuleInput, id?: string): void {
@@ -263,7 +284,7 @@ function respondToIdempotentRuleCreate(req: AuthenticatedRequest, res: Response,
 
   const userId = req.user?.id;
   if (!userId) {
-    throw new ApiError(401, 'missing_token', 'Authentication token is required');
+    throw new ApiError(401, 'token_invalid', 'Authentication token is required');
   }
   const cacheKey = `${userId}:${idempotencyKey}`;
   const fingerprint = crypto.createHash('sha256').update(JSON.stringify({ body, id })).digest('hex');
@@ -302,7 +323,7 @@ function routeParam(value: string | string[] | undefined, message: string): stri
 
 function zodErrorMiddleware(error: unknown, _req: Request, res: Response, next: NextFunction): void {
   if (error instanceof z.ZodError) {
-    res.status(400).json({ error: { code: 'validation_error', message: 'Request validation failed', details: error.issues } });
+    res.status(400).json({ error: { code: 'validation_error', message: 'Request validation failed', details: [] } });
     return;
   }
   next(error);

@@ -23,13 +23,15 @@ export interface MetricPoint {
 const teams = ['Platform', 'Dispatch', 'Routing', 'Payments', 'Telemetry', 'Mobile', 'Data'];
 const regions = ['us-east', 'us-west', 'eu-central', 'ap-south'];
 const prefixes = ['routing-core', 'dispatch-api', 'driver-mobile', 'payments-ledger', 'fleet-ingest', 'telemetry-edge'];
-const replayLimit = 25_000;
+const replayRetentionMs = 5 * 60_000;
 const historyLimit = 720;
 
 let offset = 184_239;
+let oldestAvailableOffset = offset + 1;
 const services = createServices();
 const serviceSeq = new Map(services.map((service) => [service.id, 0]));
 const replay: MetricEvent[] = [];
+let replayStart = 0;
 const history = new Map<string, MetricPoint[]>();
 const rules = new Map<string, AlertRule>();
 
@@ -82,7 +84,11 @@ export function getHistory(serviceId: string, minutes: number) {
 }
 
 export function getReplay(since: number) {
-  return { since, latestOffset: offset, items: replay.filter((event) => event.offset > since) };
+  pruneReplay(Date.now());
+  if (since < oldestAvailableOffset - 1) {
+    throw new ApiError(410, 'replay_too_old', 'Requested metric history is no longer available');
+  }
+  return { since, latestOffset: offset, items: replay.slice(replayStart).filter((event) => event.offset > since) };
 }
 
 export function nextMetricEvent(now = Date.now()): MetricEvent {
@@ -97,10 +103,9 @@ export function nextMetricEvent(now = Date.now()): MetricEvent {
 
   Object.assign(service, { p95, errRate, rps, status, updatedAt: now });
   const event: MetricEvent = { type: 'metric', offset: ++offset, serviceId: service.id, seq, ts: now, p95, errRate, rps, status };
+  if (replayStart === replay.length) oldestAvailableOffset = event.offset;
   replay.push(event);
-  if (replay.length > replayLimit) {
-    replay.splice(0, replay.length - replayLimit);
-  }
+  pruneReplay(now);
   const points = history.get(service.id) ?? [];
   points.push({ ts: now, p95, errRate, rps, status });
   if (points.length > historyLimit) {
@@ -108,6 +113,18 @@ export function nextMetricEvent(now = Date.now()): MetricEvent {
   }
   history.set(service.id, points);
   return event;
+}
+
+function pruneReplay(now: number): void {
+  const cutoff = now - replayRetentionMs;
+  while (replayStart < replay.length && replay[replayStart].ts < cutoff) {
+    oldestAvailableOffset = replay[replayStart].offset + 1;
+    replayStart += 1;
+  }
+  if (replayStart >= 100_000 && replayStart * 2 >= replay.length) {
+    replay.splice(0, replayStart);
+    replayStart = 0;
+  }
 }
 
 export function listRules(): AlertRule[] {

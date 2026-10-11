@@ -50,12 +50,14 @@ Base URL: `http://localhost:4000`
 
 - `POST /auth/login`
 - `POST /auth/refresh`
+- `GET /health` (no authentication)
 - `GET /services`
 - `GET /metrics/snapshot`
 - `GET /metrics/history?serviceId=&minutes=`
 - `GET /metrics/replay?since=`
-- WebSocket `/stream?token=&since=`
-- SSE `/stream/sse?token=&since=`
+- WebSocket `/stream?access_token=&since=`
+- SSE `/stream/sse?access_token=&since=`
+- SSE `/assistant/stream?access_token=&since=`
 - `GET /rules`
 - `GET /rules/:id`
 - `POST /rules`
@@ -65,7 +67,8 @@ Base URL: `http://localhost:4000`
 - `GET /chaos`
 - `POST /chaos`
 - `DELETE /chaos`
-- `GET /health`
+
+All endpoints other than `/auth/*`, `/health`, and `/chaos` require `Authorization: Bearer <accessToken>`. Streaming endpoints also accept `access_token` as a query parameter.
 
 Errors use:
 
@@ -110,7 +113,7 @@ Backend: `http://localhost:4000`
 
 ## Chaos Testing
 
-Authenticate as an operator, then call `POST /chaos`.
+Call `POST /chaos` directly; chaos controls require no authentication.
 
 Examples:
 
@@ -121,7 +124,7 @@ Invoke-RestMethod http://localhost:4000/chaos -Method Post -Headers $headers -Co
 Invoke-RestMethod http://localhost:4000/chaos -Method Delete -Headers $headers
 ```
 
-Supported chaos controls include rate changes, WebSocket down/silent, SSE down, dropped/duplicate/shuffled/malformed events, token TTL, HTTP 500/429, slow HTTP responses, and process kill.
+Supported chaos controls include rate changes, WebSocket down/silent/drop, SSE down, dropped/duplicate/shuffled/garbage events, token TTL, HTTP 500 percentages/429/slow responses, and periodic stream connection closure with `kill`.
 
 ## HTTP Resilience
 
@@ -131,7 +134,7 @@ The Angular HTTP client applies a 10 second timeout per attempt. GET requests ar
 
 - Backend state is deterministic in memory and generates 2,000 services.
 - Metric events use a monotonic global offset and per-service sequence numbers.
-- Replay and per-service history are bounded in memory.
+- Replay retains at least five minutes of metric events; per-service history is bounded in memory.
 - The Angular standalone feature pages call typed API/auth services; `FleetStore` owns table state, snapshots, stream-applied metrics, chart history and in-browser rule evaluation.
 - Realtime uses WebSocket, then SSE, then 2-second snapshot polling; it probes for WebSocket recovery and handles offline/online, heartbeat inactivity, replay repair, and malformed/duplicate/gap diagnostics.
 - Realtime metrics are applied in 250ms batches; a service-id index keeps rule evaluation constant-time per event. Chart.js renders the history panels; series retain at most 300 points and longer histories are bucket-averaged while preserving the first and last points.
