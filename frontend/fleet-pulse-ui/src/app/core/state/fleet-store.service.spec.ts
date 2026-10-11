@@ -57,9 +57,9 @@ describe('fleet stream processing helpers', () => {
   it('clears multiple service status flashes in one store update', () => {
     vi.useFakeTimers();
     let onMetric: ((event: MetricEvent) => void) | undefined;
-    const services = ['svc-1', 'svc-2'].map((id) => ({
-      id,
-      name: id,
+    const services = Array.from({ length: 2000 }, (_value, index) => ({
+      id: `svc-${index + 1}`,
+      name: `service-${index + 1}`,
       team: 'Operations',
       region: 'us-east',
       status: 'healthy' as const,
@@ -72,7 +72,7 @@ describe('fleet stream processing helpers', () => {
     const snapshot = {
       offset: 1,
       generatedAt: Date.now(),
-      summary: { total: 2, healthy: 2, degraded: 0, down: 0, avgP95: 100, totalRps: 20, avgErrRate: 0.1 },
+      summary: { total: 2000, healthy: 2000, degraded: 0, down: 0, avgP95: 100, totalRps: 20_000, avgErrRate: 0.1 },
       services,
     };
     TestBed.configureTestingModule({
@@ -94,33 +94,65 @@ describe('fleet stream processing helpers', () => {
     });
 
     const store = TestBed.inject(FleetStore);
-    const update = vi.spyOn(store.services, 'update');
+    const set = vi.spyOn(store.services, 'set');
     store.load();
-    for (const [index, service] of services.entries()) {
-      onMetric?.({
+    const untouchedService = store.services()[1999];
+    const updates: MetricEvent[] = [
+      {
         type: 'metric',
-        offset: index + 2,
-        serviceId: service.id,
+        offset: 2,
+        serviceId: 'svc-1',
         seq: 2,
         ts: Date.now(),
         p95: 120,
         errRate: 0.2,
         rps: 12,
         status: 'degraded',
-      });
+      },
+      {
+        type: 'metric',
+        offset: 3,
+        serviceId: 'svc-1',
+        seq: 3,
+        ts: Date.now() + 1,
+        p95: 130,
+        errRate: 0.3,
+        rps: 13,
+        status: 'degraded',
+      },
+      {
+        type: 'metric',
+        offset: 4,
+        serviceId: 'svc-2',
+        seq: 2,
+        ts: Date.now() + 2,
+        p95: 120,
+        errRate: 0.2,
+        rps: 12,
+        status: 'degraded',
+      },
+    ];
+    for (const event of updates) {
+      onMetric?.(event);
     }
 
     vi.advanceTimersByTime(250);
-    expect(store.services().every((service) => service.statusChanged)).toBe(true);
-    expect(update).toHaveBeenCalledTimes(1);
+    expect(store.services()[0].statusChanged).toBe(true);
+    expect(store.services()[0].latency).toBe(130);
+    expect(store.services()[0].trend.latency).toEqual([100, 130]);
+    expect(store.services()[1].statusChanged).toBe(true);
+    expect(store.services()).toHaveLength(2000);
+    expect(store.services()[1999]).toBe(untouchedService);
+    expect(store.services()[1999].statusChanged).toBe(false);
+    expect(set).toHaveBeenCalledTimes(2);
     vi.advanceTimersByTime(1000);
 
     expect(store.services().every((service) => !service.statusChanged)).toBe(true);
-    expect(update).toHaveBeenCalledTimes(2);
+    expect(set).toHaveBeenCalledTimes(3);
     vi.useRealTimers();
   });
 
-  it('keeps a virtualized service window aligned to the filtered list and clamps invalid page requests', () => {
+  it('keeps the filtered and sorted service collection unpaginated for viewport virtualization', () => {
     TestBed.configureTestingModule({
       providers: [
         { provide: AuthService, useValue: { logout$: new Subject<void>(), accessToken: () => null } },
@@ -141,27 +173,10 @@ describe('fleet stream processing helpers', () => {
       updatedAt: 1_800_000_000_000,
     })));
 
-    store.setPage(3);
-
-    expect(store.pageCount()).toBe(3);
-    expect(store.currentPage()).toBe(3);
-    expect(store.pageRangeStart()).toBe(201);
-    expect(store.pageRangeEnd()).toBe(205);
-    expect(store.visibleServices()).toHaveLength(40);
-    expect(store.visibleServices()[0].id).toBe('svc-1');
-
-    store.setWindowStart(80);
-    expect(store.visibleServices()[0].id).toBe('svc-81');
-    expect(store.visibleServices()).toHaveLength(40);
-
-    store.setPage(99);
-    expect(store.currentPage()).toBe(3);
+    expect(store.sortedServices()).toHaveLength(205);
+    expect(store.sortedServices()[0].id).toBe('svc-1');
 
     store.setQuery('does-not-exist');
-    expect(store.page()).toBe(1);
-    expect(store.pageCount()).toBe(1);
-    expect(store.pageRangeStart()).toBe(0);
-    expect(store.pageRangeEnd()).toBe(0);
-    expect(store.visibleServices()).toHaveLength(0);
+    expect(store.sortedServices()).toHaveLength(0);
   });
 });

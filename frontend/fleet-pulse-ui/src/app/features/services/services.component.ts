@@ -1,18 +1,19 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, ViewChild, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, ViewChild, inject } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatTableModule } from '@angular/material/table';
 import { FleetStore } from '../../core/state/fleet-store.service';
+import type { FleetService } from '../../core/models/ui.models';
 import { StateComponent } from '../../shared/components/state.component';
 import { StatusBadgeComponent } from '../../shared/components/status-badge.component';
 
 @Component({
   selector: 'app-services',
-  imports: [CommonModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatTableModule, StateComponent, StatusBadgeComponent],
+  imports: [CommonModule, RouterLink, ScrollingModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, StateComponent, StatusBadgeComponent],
   template: `
     <article class="panel service-panel">
       <div class="panel-heading">
@@ -53,43 +54,47 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
       } @else if (store.error()) {
         <app-state title="Unable to load services" [message]="store.error() ?? ''" />
       } @else {
-        <div #tableViewport class="table-wrap fleet-virtual-scroll" role="region" aria-label="Services table" tabindex="0" (scroll)="onScroll($event)">
-          <div class="virtual-spacer" [style.height.px]="store.virtualTopSpace()" aria-hidden="true"></div>
-          <table mat-table [dataSource]="store.visibleServices()" class="fleet-table">
-            <ng-container matColumnDef="service">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('name')">Service</button></th>
-              <td mat-cell *matCellDef="let service"><a [routerLink]="['/services', service.id]" (click)="$event.stopPropagation()"><strong>{{ service.name }}</strong></a><small>{{ service.region }}</small></td>
-            </ng-container>
-            <ng-container matColumnDef="team">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('team')">Team</button></th>
-              <td mat-cell *matCellDef="let service">{{ service.team }}</td>
-            </ng-container>
-            <ng-container matColumnDef="status">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('status')">Status</button></th>
-              <td mat-cell *matCellDef="let service"><span [class.status-flash]="service.statusChanged"><app-status-badge [status]="service.status" [label]="service.status" /></span></td>
-            </ng-container>
-            <ng-container matColumnDef="latency">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('latency')">P95</button></th>
-              <td mat-cell *matCellDef="let service">{{ service.latency }}ms</td>
-            </ng-container>
-            <ng-container matColumnDef="errors">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('errorRate')">Errors</button></th>
-              <td mat-cell *matCellDef="let service">{{ service.errorRate | number: '1.2-2' }}%</td>
-            </ng-container>
-            <ng-container matColumnDef="rps">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('rps')">RPS</button></th>
-              <td mat-cell *matCellDef="let service">{{ service.rps | number: '1.0-0' }}</td>
-            </ng-container>
-            <ng-container matColumnDef="updated">
-              <th mat-header-cell *matHeaderCellDef><button mat-button type="button" (click)="sortBy('updatedAt')">Updated</button></th>
-              <td mat-cell *matCellDef="let service">{{ service.updatedAt | date: 'shortTime' }}</td>
-            </ng-container>
-            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-            <tr mat-row *matRowDef="let service; columns: displayedColumns" [class.alert-row]="service.status !== 'healthy'" [routerLink]="['/services', service.id]"></tr>
+        <cdk-virtual-scroll-viewport
+          #tableViewport
+          class="fleet-virtual-scroll"
+          role="region"
+          aria-label="Services table"
+          tabindex="0"
+          [itemSize]="rowHeight"
+          [minBufferPx]="432"
+          [maxBufferPx]="864"
+        >
+          <table class="mat-mdc-table fleet-table" role="table">
+            <thead>
+              <tr class="mat-mdc-header-row">
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('name')">Service</button></th>
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('team')">Team</button></th>
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('status')">Status</button></th>
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('latency')">P95</button></th>
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('errorRate')">Errors</button></th>
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('rps')">RPS</button></th>
+                <th class="mat-mdc-header-cell" scope="col"><button mat-button type="button" (click)="sortBy('updatedAt')">Updated</button></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                class="mat-mdc-row"
+                *cdkVirtualFor="let service of store.sortedServices(); trackBy: trackService"
+                [class.alert-row]="service.status !== 'healthy'"
+                [routerLink]="['/services', service.id]"
+              >
+                <td class="mat-mdc-cell"><a [routerLink]="['/services', service.id]" (click)="$event.stopPropagation()"><strong>{{ service.name }}</strong></a><small>{{ service.region }}</small></td>
+                <td class="mat-mdc-cell">{{ service.team }}</td>
+                <td class="mat-mdc-cell"><span [class.status-flash]="service.statusChanged"><app-status-badge [status]="service.status" [label]="service.status" /></span></td>
+                <td class="mat-mdc-cell">{{ service.latency }}ms</td>
+                <td class="mat-mdc-cell">{{ service.errorRate | number: '1.2-2' }}%</td>
+                <td class="mat-mdc-cell">{{ service.rps | number: '1.0-0' }}</td>
+                <td class="mat-mdc-cell">{{ service.updatedAt | date: 'shortTime' }}</td>
+              </tr>
+            </tbody>
           </table>
-          <div class="virtual-spacer" [style.height.px]="store.virtualBottomSpace()" aria-hidden="true"></div>
-        </div>
-        @if (store.visibleServices().length === 0) {
+        </cdk-virtual-scroll-viewport>
+        @if (store.sortedServices().length === 0) {
           <app-state title="No matching services" message="Try a different filter." />
         }
       }
@@ -101,8 +106,8 @@ export class ServicesComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly store = inject(FleetStore);
-  readonly displayedColumns = ['service', 'team', 'status', 'latency', 'errors', 'rps', 'updated'];
-  @ViewChild('tableViewport') private tableViewport?: ElementRef<HTMLElement>;
+  readonly rowHeight = 54;
+  @ViewChild(CdkVirtualScrollViewport) private tableViewport?: CdkVirtualScrollViewport;
 
   ngOnInit(): void {
     this.route.queryParamMap.subscribe((params) => {
@@ -115,7 +120,6 @@ export class ServicesComponent implements OnInit {
         isSortKey(sort) ? sort : 'status',
         direction === 'asc' || direction === 'desc' ? direction : 'desc',
       );
-      this.store.setPage(parsePage(params.get('page')));
       this.resetTableScroll();
     });
   }
@@ -148,14 +152,12 @@ export class ServicesComponent implements OnInit {
     this.store.setSort(key, direction);
   }
 
-  onScroll(event: Event): void {
-    const element = event.target as HTMLElement;
-    const header = element.querySelector('thead')?.getBoundingClientRect().height ?? 0;
-    this.store.setWindowStart(Math.floor(Math.max(0, element.scrollTop - header) / this.store.rowHeight));
+  trackService(_index: number, service: FleetService): string {
+    return service.id;
   }
 
   private resetTableScroll(): void {
-    if (this.tableViewport) this.tableViewport.nativeElement.scrollTop = 0;
+    this.tableViewport?.scrollToIndex(0);
   }
 
   private syncUrl(): void {
@@ -171,11 +173,6 @@ export class ServicesComponent implements OnInit {
       replaceUrl: true,
     });
   }
-}
-
-function parsePage(value: string | null): number {
-  const page = Number(value);
-  return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
 function isSortKey(value: string | null): value is Parameters<FleetStore['setSort']>[0] {

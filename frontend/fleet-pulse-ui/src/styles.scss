@@ -300,15 +300,9 @@ app-shell {
 }
 
 .fleet-virtual-scroll {
+  display: block;
   height: min(680px, calc(100dvh - 446px));
   min-height: 180px;
-  overflow: auto;
-  contain: layout paint;
-}
-
-.virtual-spacer {
-  width: 1px;
-  pointer-events: none;
 }
 
 .fleet-table td a {

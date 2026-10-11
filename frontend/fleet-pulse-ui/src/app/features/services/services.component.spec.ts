@@ -1,5 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
+import { By } from '@angular/platform-browser';
 import { provideRouter, Router } from '@angular/router';
 import { vi } from 'vitest';
 import { FleetStore } from '../../core/state/fleet-store.service';
@@ -24,9 +26,14 @@ describe('ServicesComponent', () => {
       statusChanged: false,
       trend: { latency: [400, 420], errorRate: [1, 1.25], throughput: [90, 92] },
     };
+    const services = Array.from({ length: 2000 }, (_value, index) => ({
+      ...service,
+      id: `svc-${index + 1}`,
+      name: index === 0 ? 'checkout-api' : `service-${index + 1}`,
+    }));
     const store = {
-      filteredServices: signal([service]),
-      visibleServices: signal([service]),
+      filteredServices: signal(services),
+      sortedServices: signal(services),
       loading: signal(false),
       error: signal<string | null>(null),
       query: signal(''),
@@ -35,22 +42,11 @@ describe('ServicesComponent', () => {
       sortKey: signal('name'),
       sortDirection: signal('asc'),
       teams: signal(['commerce']),
-      currentPage: signal(1),
-      pageCount: signal(2),
-      pageRangeStart: signal(1),
-      pageRangeEnd: signal(1),
-      sortedServices: signal([service]),
-      virtualTopSpace: signal(0),
-      virtualBottomSpace: signal(0),
-      virtualWindowSize: 40,
-      rowHeight: 54,
       setQuery: vi.fn(),
       setStatus: vi.fn(),
       setTeam: vi.fn(),
       sortBy: vi.fn(),
       setSort: vi.fn(),
-      setPage: vi.fn(),
-      setWindowStart: vi.fn(),
     };
 
     await TestBed.configureTestingModule({
@@ -67,10 +63,20 @@ describe('ServicesComponent', () => {
     const fixture = TestBed.createComponent(ServicesComponent);
     fixture.detectChanges();
     await fixture.whenStable();
+    const viewportElement = fixture.nativeElement.querySelector('cdk-virtual-scroll-viewport') as HTMLElement;
+    Object.defineProperty(viewportElement, 'clientHeight', { configurable: true, value: 432 });
+    Object.defineProperty(viewportElement, 'scrollTo', { configurable: true, value: vi.fn() });
+    fixture.debugElement.query(By.directive(CdkVirtualScrollViewport)).injector
+      .get(CdkVirtualScrollViewport).checkViewportSize();
+    fixture.detectChanges();
+    await fixture.whenStable();
 
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelector('table[mat-table]')).not.toBeNull();
+    expect(element.querySelector('cdk-virtual-scroll-viewport')).not.toBeNull();
+    expect(element.querySelector('table[role="table"]')).not.toBeNull();
     expect(element.querySelector('tr.mat-mdc-row')?.textContent).toContain('checkout-api');
+    expect(store.sortedServices().length).toBe(2000);
+    expect(element.querySelectorAll('tr.mat-mdc-row').length).toBeLessThan(60);
     expect(element.querySelector('[aria-label="Services pagination"]')).toBeNull();
 
     const search = element.querySelector('input[type="search"]') as HTMLInputElement;

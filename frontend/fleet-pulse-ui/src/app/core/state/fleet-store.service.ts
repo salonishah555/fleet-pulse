@@ -25,15 +25,6 @@ export class FleetStore {
   readonly teamFilter = signal('all');
   readonly sortKey = signal<SortKey>('status');
   readonly sortDirection = signal<SortDirection>('desc');
-  readonly page = signal(1);
-  readonly pageSize = 100;
-  readonly pageCount = computed(() => Math.max(1, Math.ceil(this.sortedServices().length / this.pageSize)));
-  readonly currentPage = computed(() => Math.min(this.page(), this.pageCount()));
-  readonly pageRangeStart = computed(() => this.sortedServices().length ? (this.currentPage() - 1) * this.pageSize + 1 : 0);
-  readonly pageRangeEnd = computed(() => Math.min(this.currentPage() * this.pageSize, this.sortedServices().length));
-  readonly windowStart = signal(0);
-  readonly virtualWindowSize = 40;
-  readonly rowHeight = 54;
 
   readonly eventOffset = computed(() => this.realtime.displayOffset());
   readonly lastEvent = computed(() => this.realtime.lastEventAt());
@@ -41,7 +32,7 @@ export class FleetStore {
   readonly connectionStatus = computed(() => this.realtime.status());
   readonly stale = computed(() => this.realtime.status() === 'stale' || this.realtime.status() === 'disconnected');
 
-  readonly teams = computed(() => Array.from(new Set(this.services().map((service) => service.team))).sort());
+  readonly teams = signal<string[]>([]);
   readonly filteredServices = computed(() => {
     const query = this.query().trim().toLowerCase();
     const status = this.statusFilter();
@@ -58,10 +49,6 @@ export class FleetStore {
     const key = this.sortKey();
     return [...this.filteredServices()].sort((first, second) => compare(sortValue(first, key), sortValue(second, key)) * direction);
   });
-  readonly pageServices = computed(() => this.sortedServices());
-  readonly visibleServices = computed(() =>
-    this.sortedServices().slice(this.windowStart(), this.windowStart() + this.virtualWindowSize),
-  );
   readonly summary = computed<FleetSummary>(() => {
     const services = this.services();
     const total = services.length || 1;
@@ -88,15 +75,12 @@ export class FleetStore {
   ]);
   readonly ruleIncidents = signal<Incident[]>([]);
   readonly latestRuleNotification = signal<string | null>(null);
-  readonly virtualTopSpace = computed(() => this.windowStart() * this.rowHeight);
-  readonly virtualBottomSpace = computed(() =>
-    Math.max(0, this.sortedServices().length - this.windowStart() - this.virtualWindowSize) * this.rowHeight,
-  );
   private readonly ruleStartTimes = new Map<string, number>();
   private readonly firingRuleKeys = new Set<string>();
   private readonly statusFlashDeadlines = new Map<string, number>();
   private readonly pendingMetricEvents: MetricEvent[] = [];
   private readonly serviceById = new Map<string, FleetService>();
+  private readonly serviceIndexById = new Map<string, number>();
   private metricFlushTimer?: ReturnType<typeof setTimeout>;
   private statusFlashTimer?: ReturnType<typeof setTimeout>;
 
@@ -113,6 +97,7 @@ export class FleetStore {
           const mappedServices = snapshot.services.map(mapService);
           this.services.set(mappedServices);
           this.replaceServiceIndex(mappedServices);
+          this.teams.set(getTeams(mappedServices));
           this.rules.set(rules.items.map(mapRule));
           this.realtime.setOffset(snapshot.offset);
           const token = this.auth.accessToken();
@@ -137,35 +122,19 @@ export class FleetStore {
 
   setQuery(value: string): void {
     this.query.set(value);
-    this.resetPagination();
   }
 
   setStatus(value: string): void {
     this.statusFilter.set(value as 'all' | FleetService['status']);
-    this.resetPagination();
   }
 
   setTeam(value: string): void {
     this.teamFilter.set(value);
-    this.resetPagination();
   }
 
   setSort(key: SortKey, direction: SortDirection): void {
     this.sortKey.set(key);
     this.sortDirection.set(direction);
-    this.resetPagination();
-  }
-
-  setPage(value: number): void {
-    const page = Number.isFinite(value) ? Math.trunc(value) : 1;
-    const maxPage = this.services().length ? this.pageCount() : Number.MAX_SAFE_INTEGER;
-    this.page.set(Math.max(1, Math.min(maxPage, page)));
-    this.windowStart.set(0);
-  }
-
-  setWindowStart(index: number): void {
-    const maxStart = Math.max(0, this.pageServices().length - this.virtualWindowSize);
-    this.windowStart.set(Math.max(0, Math.min(maxStart, index)));
   }
 
   setServiceHistory(serviceId: string, points: MetricPoint[]): void {
@@ -190,12 +159,6 @@ export class FleetStore {
       this.sortKey.set(key);
       this.sortDirection.set('asc');
     }
-    this.resetPagination();
-  }
-
-  private resetPagination(): void {
-    this.page.set(1);
-    this.windowStart.set(0);
   }
 
   createRule(rule: Omit<AlertRule, 'id' | 'enabled'>): Observable<AlertRuleDto> {
@@ -284,13 +247,18 @@ export class FleetStore {
     const mappedServices = snapshot.services.map(mapService);
     this.services.set(mappedServices);
     this.replaceServiceIndex(mappedServices);
+    this.teams.set(getTeams(mappedServices));
     this.realtime.setOffset(snapshot.offset);
     this.realtime.seedSequences(snapshot.services);
   }
 
   private replaceServiceIndex(services: FleetService[]): void {
     this.serviceById.clear();
-    for (const service of services) this.serviceById.set(service.id, service);
+    this.serviceIndexById.clear();
+    for (const [index, service] of services.entries()) {
+      this.serviceById.set(service.id, service);
+      this.serviceIndexById.set(service.id, index);
+    }
   }
 
   private applyMetricEvents(events: MetricEvent[]): void {
@@ -300,31 +268,37 @@ export class FleetStore {
       serviceEvents.push(event);
       byService.set(event.serviceId, serviceEvents);
     }
-    const previousStatuses = new Map(this.services().map((service) => [service.id, service.status]));
-    this.services.update((services) =>
-      services.map((service) => {
-        const serviceEvents = byService.get(service.id);
-        if (!serviceEvents) return service;
-        const updated = applyServiceEvents(service, serviceEvents, previousStatuses.get(service.id));
-        this.serviceById.set(service.id, updated);
-        return updated;
-      }),
-    );
-    const history = { ...this.serviceHistory() };
+    const services = this.services();
+    const nextServices = services.slice();
+    const currentHistory = this.serviceHistory();
+    let nextHistory: Record<string, MetricPoint[]> | undefined;
+    const now = Date.now();
     for (const [serviceId, serviceEvents] of byService) {
-      let observedStatus = previousStatuses.get(serviceId);
+      const service = this.serviceById.get(serviceId);
+      const serviceIndex = this.serviceIndexById.get(serviceId);
+      if (!service || serviceIndex === undefined) continue;
+
+      const updated = applyServiceEvents(service, serviceEvents);
+      this.serviceById.set(serviceId, updated);
+      nextServices[serviceIndex] = updated;
+
+      let observedStatus = service.status;
       const statusChanged = serviceEvents.some((event) => {
         const changed = observedStatus !== undefined && observedStatus !== event.status;
         observedStatus = event.status;
         return changed;
       });
       if (statusChanged) {
-        this.statusFlashDeadlines.set(serviceId, Date.now() + 1000);
+        this.statusFlashDeadlines.set(serviceId, now + 1000);
         this.scheduleStatusFlashCleanup();
       }
-      if (history[serviceId]) history[serviceId] = appendMetricEvents(history[serviceId], serviceEvents);
+      if (currentHistory[serviceId]) {
+        nextHistory ??= { ...currentHistory };
+        nextHistory[serviceId] = appendMetricEvents(currentHistory[serviceId], serviceEvents);
+      }
     }
-    this.serviceHistory.set(history);
+    this.services.set(nextServices);
+    if (nextHistory) this.serviceHistory.set(nextHistory);
     for (const event of events) this.evaluateRules(event);
   }
 
@@ -341,11 +315,13 @@ export class FleetStore {
         expiredIds.add(serviceId);
       }
       if (expiredIds.size) {
-        this.services.update((services) =>
-          services.map((service) =>
-            expiredIds.has(service.id) ? { ...service, statusChanged: false } : service,
-          ),
-        );
+        const services = this.services().slice();
+        for (const serviceId of expiredIds) {
+          const index = this.serviceIndexById.get(serviceId);
+          const service = index === undefined ? undefined : services[index];
+          if (index !== undefined && service?.statusChanged) services[index] = { ...service, statusChanged: false };
+        }
+        this.services.set(services);
       }
       if (this.statusFlashDeadlines.size) this.scheduleStatusFlashCleanup();
     }, Math.max(0, nextDeadline - Date.now()));
@@ -481,21 +457,14 @@ function appendMetricEvents(values: MetricPoint[], events: MetricEvent[]): Metri
   );
 }
 
-function applyServiceEvents(service: FleetService, events: MetricEvent[], previousStatus: FleetService['status'] | undefined): FleetService {
-  let currentStatus = previousStatus;
+function applyServiceEvents(service: FleetService, events: MetricEvent[]): FleetService {
+  let currentStatus: FleetService['status'] | undefined = service.status;
   let statusChanged = false;
-  let trend = service.trend;
-  let latest = events[0];
   for (const event of events) {
     if (currentStatus !== undefined && currentStatus !== event.status) statusChanged = true;
     currentStatus = event.status;
-    latest = event;
-    trend = {
-      latency: appendLimited(trend.latency, event.p95),
-      errorRate: appendLimited(trend.errorRate, event.errRate),
-      throughput: appendLimited(trend.throughput, event.rps),
-    };
   }
+  const latest = events[events.length - 1];
   return {
     ...service,
     latency: latest.p95,
@@ -504,12 +473,21 @@ function applyServiceEvents(service: FleetService, events: MetricEvent[], previo
     status: latest.status,
     statusChanged: statusChanged || service.statusChanged,
     updatedAt: new Date(latest.ts),
-    trend,
+    trend: {
+      latency: appendLimited(service.trend.latency, latest.p95),
+      errorRate: appendLimited(service.trend.errorRate, latest.errRate),
+      throughput: appendLimited(service.trend.throughput, latest.rps),
+    },
   };
 }
 
+function getTeams(services: FleetService[]): string[] {
+  return Array.from(new Set(services.map((service) => service.team))).sort();
+}
+
+const statusRank: Record<FleetService['status'], number> = { healthy: 1, degraded: 2, down: 3 };
+
 function sortValue(service: FleetService, key: SortKey): string | number {
-  const statusRank: Record<FleetService['status'], number> = { healthy: 1, degraded: 2, down: 3 };
   if (key === 'latency') return service.latency;
   if (key === 'errorRate') return service.errorRate;
   if (key === 'updatedAt') return service.updatedAt.getTime();
